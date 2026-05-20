@@ -55,7 +55,7 @@ async def execute(
 
     When status is "partial", check the output text to decide what to do:
     - If output ends with a prompt like [Y/n], call respond to answer it.
-    - If output is progress logs, call respond with empty text or just wait.
+    - If output is progress logs (no input needed), call read_output to collect more.
     """
     return await manager.execute_command(session_id, command, pause_timeout, total_timeout)
 
@@ -77,6 +77,22 @@ async def respond(
     status will be "partial" again - call respond once more.
     """
     return await manager.respond_to_command(command_id, text, pause_timeout, total_timeout)
+
+
+@mcp.tool()
+async def read_output(
+    command_id: str,
+    pause_timeout: float = 2.0,
+    total_timeout: float = 30.0,
+) -> dict:
+    """
+    Read new output from a running command without sending any input.
+    Use this after execute returns status "partial" when the command needs no interaction
+    (e.g. long-running build, training loop, find).
+
+    Returns the same format as execute/respond.
+    """
+    return await manager.poll_command(command_id, pause_timeout, total_timeout)
 
 
 @mcp.tool()

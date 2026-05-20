@@ -76,6 +76,8 @@ class SessionManager:
 
         await asyncio.to_thread(client.connect, **kwargs)
 
+        client.get_transport().set_keepalive(30)
+
         banner = await self._capture_ssh_banner(client, banner_timeout)
 
         session_id = str(uuid.uuid4())
@@ -161,6 +163,16 @@ class SessionManager:
         if not text.endswith('\n'):
             text += '\n'
         await self.commands[command_id].write_input(text)
+        return await self._wait_for_result(command_id, pause_timeout, total_timeout)
+
+    async def poll_command(
+        self,
+        command_id: str,
+        pause_timeout: float = 2.0,
+        total_timeout: float = 30.0,
+    ) -> dict:
+        if command_id not in self.commands:
+            raise ValueError("Invalid command_id")
         return await self._wait_for_result(command_id, pause_timeout, total_timeout)
 
     async def send_control(
