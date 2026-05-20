@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import re
 import subprocess
 import sys
 import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
+
+_ANSI_ESCAPE = re.compile(r'\x1b(?:[@-Z\\-_]|[0-?]|\[[0-?]*[ -/]*[@-~]|[ -/][@-~])')
 
 import paramiko
 
@@ -104,8 +107,8 @@ class SessionManager:
         while ch.recv_ready():
             chunks.append(ch.recv(4096))
         ch.close()
-        raw = b"".join(chunks).decode("utf-8", errors="replace").strip()
-        return self._render_pyte(raw) if PYTE_AVAILABLE else raw
+        raw = b"".join(chunks).replace(b'\x00', b'').decode("utf-8", errors="replace").strip()
+        return _ANSI_ESCAPE.sub('', raw)
 
     # ------------------------------------------------------------------
     # Command execution
