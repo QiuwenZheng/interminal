@@ -170,6 +170,7 @@ if PTY_AVAILABLE:
                     data = await asyncio.to_thread(self._pty.read, 4096)
                     return data.encode() if isinstance(data, str) else data
                 except EOFError:
+                    self._finished = True
                     return b""
             else:
                 try:
@@ -221,3 +222,5 @@ if PTY_AVAILABLE:
 
         async def send_signal(self, sig: bytes) -> None:
             await self.write(sig)
+            if sys.platform == "win32" and sig == b'\x03':
+                self._finished = True

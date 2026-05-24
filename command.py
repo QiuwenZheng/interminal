@@ -32,7 +32,9 @@ class RunningCommand:
                     has_data = True
                     self.new_data_event.set()
 
-                if await self.channel.is_finished():
+                is_eof = (raw == b"")
+
+                if is_eof or await self.channel.is_finished():
                     self.exit_code = await self.channel.get_exit_code()
                     # 排空 read() 和 is_finished() 之间可能积累的数据（SSH 必需）
                     while True:
