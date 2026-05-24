@@ -104,20 +104,26 @@ async def send_control(
 ) -> dict:
     """
     Send a control key/signal to a running command. Use this whenever a
-    raw control byte is needed — interrupting a stuck command OR driving
-    a TUI app (zellij, vim, less, etc.). Prefer this over `respond` for
-    control keys: many AI frameworks strip control characters from MCP
-    string arguments, but the string-keyed enum here is always safe.
+    raw control byte or escape sequence is needed — interrupting a stuck
+    command OR driving a TUI (zellij, vim, less, htop, etc.). Prefer this
+    over `respond` for non-printable input: many AI frameworks strip
+    control characters from MCP string arguments, but the string-keyed
+    enum here is always safe.
 
-    Args:
-    - signal: one of
-        ctrl+a .. ctrl+z          (0x01..0x1A; e.g. ctrl+o for zellij)
-        ctrl+\\, ctrl+], ctrl+^, ctrl+_
-        esc / tab / enter / bs / del
+    Signal names are case-insensitive. Supported values:
+
+      ctrl+a .. ctrl+z              0x01..0x1A (e.g. ctrl+o for zellij detach)
+      ctrl+\\, ctrl+], ctrl+^, ctrl+_, ctrl+[
+      esc, tab, enter, return, space, backspace, bs
+      up, down, left, right
+      home, end, pageup, pagedown, insert, delete, del
+      backtab / shift+tab
+      f1 .. f12
+      alt+<char>                    ESC + char (bash readline, emacs)
 
     Local non-PTY subprocesses only react to ctrl+c, ctrl+z, ctrl+\\
     (mapped to SIGINT/SIGTSTP/SIGQUIT). SSH and PTY channels accept all
-    of the above as raw bytes.
+    of the above as raw bytes / escape sequences.
 
     Returns the same format as execute/respond.
     """
