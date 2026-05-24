@@ -17,7 +17,26 @@ if PTY_AVAILABLE:
 from command import RunningCommand
 
 _CTRL_FLAGS = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {}
-_SIGNAL_MAP = {"ctrl+c": b'\x03', "ctrl+z": b'\x1a', "ctrl+\\": b'\x1c'}
+
+# Control-byte map for send_control. The string-keyed API is necessary because
+# upstream AI frameworks often strip raw control characters from MCP tool
+# `text` arguments, so the only way to inject a literal 0x01..0x1F byte is via
+# a printable enum string that we translate on the server side.
+#
+# Ctrl+A..Ctrl+Z map to 0x01..0x1A. The "named" variants below preserve the
+# legacy keys plus a few standard terminal-control aliases.
+_SIGNAL_MAP = {f"ctrl+{chr(ord('a') + i)}": bytes([i + 1]) for i in range(26)}
+_SIGNAL_MAP.update({
+    "ctrl+\\": b'\x1c',
+    "ctrl+]": b'\x1d',
+    "ctrl+^": b'\x1e',
+    "ctrl+_": b'\x1f',
+    "esc":    b'\x1b',  # alias for ctrl+[
+    "tab":    b'\x09',  # alias for ctrl+i
+    "enter":  b'\x0d',  # alias for ctrl+m
+    "bs":     b'\x08',  # alias for ctrl+h (backspace)
+    "del":    b'\x7f',  # DEL, not a Ctrl combo but useful
+})
 
 PYTE_AVAILABLE = False
 try:

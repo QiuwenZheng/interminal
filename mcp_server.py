@@ -103,10 +103,21 @@ async def send_control(
     total_timeout: float = 10.0,
 ) -> dict:
     """
-    Send a control signal to a running command. Use when a command is stuck or needs interrupting.
+    Send a control key/signal to a running command. Use this whenever a
+    raw control byte is needed — interrupting a stuck command OR driving
+    a TUI app (zellij, vim, less, etc.). Prefer this over `respond` for
+    control keys: many AI frameworks strip control characters from MCP
+    string arguments, but the string-keyed enum here is always safe.
 
     Args:
-    - signal: "ctrl+c" (interrupt), "ctrl+z" (suspend), "ctrl+\\" (quit)
+    - signal: one of
+        ctrl+a .. ctrl+z          (0x01..0x1A; e.g. ctrl+o for zellij)
+        ctrl+\\, ctrl+], ctrl+^, ctrl+_
+        esc / tab / enter / bs / del
+
+    Local non-PTY subprocesses only react to ctrl+c, ctrl+z, ctrl+\\
+    (mapped to SIGINT/SIGTSTP/SIGQUIT). SSH and PTY channels accept all
+    of the above as raw bytes.
 
     Returns the same format as execute/respond.
     """
