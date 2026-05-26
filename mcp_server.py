@@ -53,6 +53,23 @@ KEY PATTERNS (read before first use to save discovery loops):
 5. To send control keys (Ctrl+C, arrows, F-keys, etc.) use `send_control`,
    NOT `respond`. Most AI frameworks strip control bytes from string
    arguments; `send_control`'s string-keyed enum bypasses that filter.
+
+6. Timeouts on execute / respond / read_output / send_control are a PAIR
+   and control different things — they are NOT redundant:
+
+     pause_timeout = seconds of OUTPUT SILENCE before returning. After
+       the last byte arrives, if nothing new comes in this many seconds,
+       the call returns status="partial".
+     total_timeout = hard cap on the call's wall-clock duration.
+
+   For a SILENT process, return time is dominated by pause_timeout — the
+   call returns after roughly pause_timeout + 1 seconds regardless of
+   how large total_timeout is. Raising total_timeout while keeping
+   pause_timeout at its default does NOTHING to make the call wait
+   longer. To poll longer on a quiet job, raise pause_timeout:
+
+     read_output(cid, pause_timeout=30, total_timeout=600)
+     # tolerates 30s of silence per call, max 10 minutes wall-clock
 """,
 )
 manager = SessionManager()
@@ -93,8 +110,8 @@ def create_local(shell: Optional[str] = None) -> str:
 async def execute(
     session_id: str,
     command: str,
-    pause_timeout: float = 2.0,
-    total_timeout: float = 30.0,
+    pause_timeout: float = 9.0,
+    total_timeout: float = 20.0,
 ) -> dict:
     """
     Execute a command in a session (SSH or local). Always use this to run
@@ -116,8 +133,11 @@ async def execute(
     server has already daemonized itself and is safe to abandon.
 
     Args:
-    - pause_timeout: max seconds of output silence before returning (default 2.0)
-    - total_timeout: hard cap on this call's duration (default 30.0)
+    - pause_timeout: seconds of OUTPUT SILENCE before returning (default 9.0).
+      Dominates return time for silent commands — raise this (not
+      total_timeout) when polling a quiet long-running job.
+    - total_timeout: hard cap on this call's duration (default 20.0). Only
+      binds while output is actively streaming.
     """
     return await manager.execute_command(session_id, command, pause_timeout, total_timeout)
 
@@ -126,8 +146,8 @@ async def execute(
 async def respond(
     command_id: str,
     text: str,
-    pause_timeout: float = 2.0,
-    total_timeout: float = 30.0,
+    pause_timeout: float = 9.0,
+    total_timeout: float = 20.0,
 ) -> dict:
     """
     Send text input to a command that returned status="partial" and is
@@ -140,6 +160,13 @@ async def respond(
     arguments before this function ever sees them.
 
     Returns the same format as execute.
+
+    Args:
+    - pause_timeout: seconds of OUTPUT SILENCE before returning (default 9.0).
+      Raise this (not total_timeout) when the response is expected to take
+      a long time to start producing output.
+    - total_timeout: hard cap on call duration (default 20.0). Only binds
+      while output is actively streaming.
     """
     return await manager.respond_to_command(command_id, text, pause_timeout, total_timeout)
 
@@ -147,8 +174,8 @@ async def respond(
 @mcp.tool()
 async def read_output(
     command_id: str,
-    pause_timeout: float = 2.0,
-    total_timeout: float = 30.0,
+    pause_timeout: float = 9.0,
+    total_timeout: float = 20.0,
 ) -> dict:
     """
     Read new output from a running command without sending any input.
@@ -156,6 +183,14 @@ async def read_output(
     (e.g. long-running build, training loop, find).
 
     Returns the same format as execute/respond.
+
+    Args:
+    - pause_timeout: seconds of OUTPUT SILENCE before returning (default 9.0).
+      This is the dial that controls how long a silent-poll call waits.
+      Raise it (e.g. 30, 60) when polling a very quiet job; raising
+      total_timeout instead does nothing while the process stays silent.
+    - total_timeout: hard cap on call duration (default 20.0). Only binds
+      while output is actively streaming.
     """
     return await manager.poll_command(command_id, pause_timeout, total_timeout)
 
@@ -164,8 +199,8 @@ async def read_output(
 async def send_control(
     command_id: str,
     signal: str = "ctrl+c",
-    pause_timeout: float = 2.0,
-    total_timeout: float = 10.0,
+    pause_timeout: float = 9.0,
+    total_timeout: float = 20.0,
 ) -> dict:
     """
     Send a control key/signal to a running command. Use this whenever a
@@ -191,6 +226,13 @@ async def send_control(
     of the above as raw bytes / escape sequences.
 
     Returns the same format as execute/respond.
+
+    Args:
+    - pause_timeout: seconds of output silence after sending the key
+      before returning (default 9.0). Raise this if the key is expected
+      to trigger slow output (e.g. a TUI repaint over high-latency SSH).
+    - total_timeout: hard cap on call duration (default 20.0). Only binds
+      while output is actively streaming.
     """
     return await manager.send_control(command_id, signal, pause_timeout, total_timeout)
 
