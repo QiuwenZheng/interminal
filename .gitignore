@@ -3,3 +3,4 @@ venv
 .kilo
 .claude
 .vscode
+uv.lock
