@@ -97,6 +97,34 @@ execute("~/work/zellij list-sessions")
 execute("~/work/zellij delete-session train --force")
 ```
 
+### Running a command in a new tab's default pane
+
+zellij's `action new-tab` does **not** accept `-- command` (unlike `new-pane`).
+A naive "open a tab and train" therefore ends up as `new-tab` (creates an empty
+default pane running the shell) + `new-pane -- bash start.sh` (a second pane
+split into the tab), which leaves a leftover empty pane.
+
+To run the command in the new tab's default pane instead, chain `write-chars`
++ `write 13` — `new-tab` focuses the new tab automatically, so the keystrokes
+land in its default pane:
+
+```
+execute("~/work/zellij --session train action new-tab --name v4")
+execute("~/work/zellij --session train action write-chars 'bash start.sh'")
+execute("~/work/zellij --session train action write 13")   # 13 = Enter (CR)
+```
+
+tmux is simpler — `new-window` takes the command directly:
+
+```
+execute("tmux new-window -t main -n train 'bash start.sh'")
+```
+
+This is NOT the same as "puppeting the TUI": `write-chars` / `send-keys` are
+the multiplexer's own structured CLI for injecting input. The thing to avoid
+is using interminal's `respond` / `send_control` against the live TUI display
+— that races against the renderer.
+
 `TERM=xterm-256color` is required: zellij reads `TERM` at startup to pick its
 renderer, and the default inherited from paramiko's PTY is often missing or
 minimal. The same prefix is useful for other TUIs.
