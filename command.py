@@ -19,6 +19,12 @@ class RunningCommand:
         self.exit_code = None
         self.new_data_event = asyncio.Event()
         self.decoder = codecs.getincrementaldecoder('utf-8')('replace')
+        # Wall-clock of the last byte arrival. Lets _wait_for_result compute
+        # "already silent for X seconds" across calls so a poll on a quiet
+        # stream returns without re-waiting the full pause_timeout.
+        # Initialized to now so the first Phase 2 entry without prior data
+        # doesn't short-circuit.
+        self.last_data_time = asyncio.get_running_loop().time()
         self.read_task = asyncio.create_task(self._read_loop())
 
     async def _read_loop(self):
@@ -36,6 +42,7 @@ class RunningCommand:
                     if raw is not None and raw != b"":
                         self.buffer += self.decoder.decode(raw)
                         has_data = True
+                        self.last_data_time = asyncio.get_running_loop().time()
                         self.new_data_event.set()
 
                     is_eof = (raw == b"")

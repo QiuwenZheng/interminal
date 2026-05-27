@@ -170,7 +170,10 @@ class SessionManager:
         try:
             client.get_transport().set_keepalive(30)
             banner = await self._capture_ssh_banner(client, banner_timeout)
-        except Exception:
+        except BaseException:
+            # BaseException, not Exception: _capture_ssh_banner awaits
+            # asyncio.sleep, so a CancelledError mid-banner would otherwise
+            # skip past `except Exception` and leak the SSH socket.
             client.close()
             raise
 
@@ -193,11 +196,14 @@ class SessionManager:
     async def _capture_ssh_banner(self, client: paramiko.SSHClient, banner_timeout: float) -> str:
         ch = await asyncio.to_thread(client.invoke_shell)
         ch.settimeout(0.0)
-        await asyncio.sleep(banner_timeout)
-        chunks = []
-        while ch.recv_ready():
-            chunks.append(ch.recv(4096))
-        ch.close()
+        try:
+            await asyncio.sleep(banner_timeout)
+            chunks = []
+            while ch.recv_ready():
+                chunks.append(ch.recv(4096))
+        finally:
+            # try/finally so a cancel during the sleep still closes ch.
+            ch.close()
         raw = b"".join(chunks).replace(b'\x00', b'').decode("utf-8", errors="replace").strip()
         return _ANSI_ESCAPE.sub('', raw)
 
@@ -320,15 +326,22 @@ class SessionManager:
                     # full pause_timeout for no reason.
                     first_byte_timed_out = True
 
-            # Phase 2: keep collecting until pause or total timeout
+            # Phase 2: keep collecting until pause or total timeout.
+            # remaining_pause uses cmd.last_data_time so a poll on a stream
+            # that's already been quiet for a while returns near-instantly
+            # instead of waiting another full pause_timeout.
             while cmd.running and not first_byte_timed_out:
-                elapsed = asyncio.get_running_loop().time() - start
-                if elapsed >= total_timeout:
+                now = asyncio.get_running_loop().time()
+                if now - start >= total_timeout:
+                    break
+
+                remaining_pause = pause_timeout - (now - cmd.last_data_time)
+                if remaining_pause <= 0:
                     break
 
                 cmd.new_data_event.clear()
                 try:
-                    await asyncio.wait_for(cmd.new_data_event.wait(), timeout=pause_timeout)
+                    await asyncio.wait_for(cmd.new_data_event.wait(), timeout=remaining_pause)
                 except asyncio.TimeoutError:
                     break
         except BaseException:
@@ -345,14 +358,19 @@ class SessionManager:
                     pass
             raise
 
-        # Collect all buffered output and check status
+        # check_status BEFORE read_output: _read_loop's drain + tail-decode
+        # both run before the finally block sets running=False, so once
+        # check_status sees not-running, the buffer is the final value.
+        # Doing read_output first leaves a race where _read_loop's last
+        # write lands between the read and the status check, then we
+        # report status=completed and pop the command — losing the tail.
+        is_finished, exit_code = cmd.check_status()
         output = cmd.read_output()
         # Only run the pyte virtual-terminal pass when the output actually
         # contains ANSI escape sequences. Plain text would otherwise be
         # wrapped at 200 columns by the pyte screen.
         if PYTE_AVAILABLE and output and "\x1b" in output:
             output = self._render_pyte(output)
-        is_finished, exit_code = cmd.check_status()
 
         if is_finished:
             await cmd.close()

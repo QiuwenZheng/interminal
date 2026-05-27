@@ -37,7 +37,7 @@ command.py             ← RunningCommand: background read loop, UTF-8 decoding
 
 **Channel duck-typing** — `SSHChannel`, `LocalChannel`, and `PtyChannel` share an interface without ABC/abstractmethod. All three implement `read()`, `write()`, `close()`, `send_control()`, and `is_finished()`.
 
-**Two-phase timeout** (`_wait_for_result` in `session_manager.py`) — first phase waits for any data to arrive; second phase collects output until a pause longer than the threshold occurs. This handles both fast-completing and slow-streaming commands.
+**Two-phase timeout** (`_wait_for_result` in `session_manager.py`) — Phase 1 waits up to `pause_timeout + 1s` for the first byte; if it times out we return immediately (already satisfies the "silent for pause_timeout" contract — going into Phase 2 would waste another full pause_timeout). Phase 2 only runs when bytes are actually arriving, collecting until a `pause_timeout` gap or `total_timeout` hits.
 
 **PtyChannel platform split** — Windows uses `pywinpty.PtyProcess`; Unix uses `stdlib pty` with `fcntl` non-blocking I/O. `pywinpty` is an optional dependency.
 
@@ -47,9 +47,13 @@ command.py             ← RunningCommand: background read loop, UTF-8 decoding
 
 **pyte integration** (`_render_pyte` in `session_manager.py`) — optional ANSI escape sequence cleaning via a `pyte.Screen` subclass that works around a signature mismatch in the upstream library.
 
+**`RunningCommand.close` ordering** — closes the channel *before* awaiting `read_task`. Windows PTY's `read()` runs inside `asyncio.to_thread(pty.read)`, which `task.cancel()` cannot actually interrupt — the future stays pending until the underlying thread exits, and the thread won't exit until the PTY is closed. Closing the channel first unblocks the read, then cancel + await tears the task down cleanly.
+
+**`_read_loop` uses `try/finally`** — `CancelledError` is a `BaseException` subclass, not `Exception`, so a cancel on the read task bypasses the inner `except Exception`. The `finally` block guarantees `running=False` + `new_data_event.set()` always run, so any `_wait_for_result` waiter wakes immediately on cancel instead of stalling until its own `pause_timeout` fires.
+
 ### Session lifecycle
 
-1. `create_local()` or `connect_ssh()` creates a `Session` dataclass entry in `SessionManager._sessions`.
+1. `create_local()` or `connect_ssh()` creates a `Session` dataclass entry in `SessionManager.sessions`.
 2. `execute()` wraps the session's shell in a `Channel`, then a `RunningCommand` with a background `asyncio` read loop.
 3. `respond()` / `send_control()` write directly to the running command's channel.
 4. `disconnect()` closes the channel, terminates the subprocess/SSH client, and removes the session.

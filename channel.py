@@ -77,7 +77,11 @@ class SSHChannel(Channel):
         return self._ch.exit_status_ready()
 
     async def get_exit_code(self) -> int | None:
-        return self._ch.recv_exit_status()
+        # recv_exit_status() is a blocking socket read. Normally is_finished()
+        # has already returned True (exit_status_ready), so it returns at
+        # once — but EOF can arrive a beat before the exit-status message,
+        # and a sync call there would stall the whole event loop.
+        return await asyncio.to_thread(self._ch.recv_exit_status)
 
     async def close(self) -> None:
         try:
