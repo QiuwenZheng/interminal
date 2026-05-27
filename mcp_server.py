@@ -29,26 +29,12 @@ KEY PATTERNS (read before first use to save discovery loops):
    into independent daemons. The partial channel can then be ignored
    or left to time out; the daemon survives.
 
-4. For multiplexers, drive them via their OWN CLI from separate execute
-   calls. The multiplexer's CLI is the right channel — DON'T try to drive
-   the live TUI via interminal's respond/send_control. Sending keystrokes
-   through the multiplexer's own CLI (write-chars / send-keys) IS fine.
-
-   Run a command in a new PANE (splits the current tab):
-     execute("zellij --session train action new-pane -- bash start.sh")
-     execute("tmux send-keys -t train 'bash start.sh' Enter")
-
-   Run a command in a new TAB's default pane (no leftover empty pane).
-   zellij's `action new-tab` does NOT accept `-- cmd`, so chain write-chars:
-     execute("zellij --session train action new-tab --name v4")
-     execute("zellij --session train action write-chars 'bash start.sh'")
-     execute("zellij --session train action write 13")   # 13 = Enter byte
-   tmux is simpler — new-window takes the command directly:
-     execute("tmux new-window -t main -n train 'bash start.sh'")
-
-   Read what's on screen:
-     execute("zellij --session train action dump-screen")
-     execute("tmux capture-pane -t train -p")
+4. Non-obvious: zellij's `action new-tab` does NOT accept `-- cmd`.
+   To run a command in a new tab, chain write-chars instead:
+     execute("zellij --session s action new-tab --name v4")
+     execute("zellij --session s action write-chars 'bash start.sh'")
+     execute("zellij --session s action write 13")   # 13 = Enter byte
+   (new-pane DOES accept -- cmd and works normally.)
 
 5. To send control keys (Ctrl+C, arrows, F-keys, etc.) use `send_control`,
    NOT `respond`. Most AI frameworks strip control bytes from string
