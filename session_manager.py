@@ -293,12 +293,13 @@ class SessionManager:
     async def _wait_for_result(
         self,
         command_id: str,
-        pause_timeout: float = 2.0,
-        total_timeout: float = 30.0,
+        pause_timeout: float = 9.0,
+        total_timeout: float = 20.0,
         is_first_exec: bool = False,
     ) -> dict:
         cmd = self.commands[command_id]
         start = asyncio.get_running_loop().time()
+        first_byte_timed_out = False
 
         try:
             # Phase 1: wait for the first byte to arrive.
@@ -312,10 +313,15 @@ class SessionManager:
                 try:
                     await asyncio.wait_for(cmd.new_data_event.wait(), timeout=initial_wait)
                 except asyncio.TimeoutError:
-                    pass
+                    # Phase 1 timing out means we already waited
+                    # pause_timeout+1 seconds with zero bytes — that
+                    # already satisfies the "silent for pause_timeout"
+                    # contract. Skip Phase 2 to avoid waiting another
+                    # full pause_timeout for no reason.
+                    first_byte_timed_out = True
 
             # Phase 2: keep collecting until pause or total timeout
-            while cmd.running:
+            while cmd.running and not first_byte_timed_out:
                 elapsed = asyncio.get_running_loop().time() - start
                 if elapsed >= total_timeout:
                     break

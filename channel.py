@@ -19,7 +19,8 @@ else:
 if sys.platform == "win32":
     # CREATE_NEW_PROCESS_GROUP disables CTRL_C_EVENT for the child group;
     # CTRL_BREAK_EVENT is the only interrupt that works with that flag.
-    _LOCAL_SIG_MAP = {b'\x03': _signal.CTRL_BREAK_EVENT, b'\x1a': _signal.CTRL_BREAK_EVENT}
+    # Windows has no SIGTSTP, so Ctrl+Z is intentionally left unmapped.
+    _LOCAL_SIG_MAP = {b'\x03': _signal.CTRL_BREAK_EVENT}
 else:
     _LOCAL_SIG_MAP = {b'\x03': _signal.SIGINT}
     if hasattr(_signal, 'SIGTSTP'):
@@ -189,7 +190,11 @@ if PTY_AVAILABLE:
 
         async def write(self, data: bytes) -> None:
             if sys.platform == "win32":
-                self._pty.write(data.decode())
+                # bytes.decode() defaults to utf-8 regardless of locale, so
+                # the normal path is fine. errors='replace' is defensive:
+                # if upstream ever hands us non-utf-8 bytes, we'd rather
+                # write a replacement char than crash the read loop.
+                self._pty.write(data.decode('utf-8', errors='replace'))
             else:
                 os.write(self._fd, data)
 
