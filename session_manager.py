@@ -224,12 +224,19 @@ class SessionManager:
         session = self.sessions[session_id]
 
         if session.type == "ssh":
-            stdin, stdout, _ = await asyncio.to_thread(
-                session.client.exec_command, command, get_pty=True
-            )
-            # Pass stdin so SSHChannel holds a reference and GC won't call
-            # stdin.__del__() -> shutdown_write() -> eof_sent=True prematurely.
-            channel = SSHChannel(stdout.channel, stdin=stdin)
+            def _open_ssh_channel(client, cmd):
+                ch = client.get_transport().open_session()
+                # exec_command(get_pty=True) hard-codes 80×24 vt100, which
+                # pins TUI apps like zellij to a tiny viewport for as long
+                # as this channel stays open. Use the low-level API so we
+                # can request a generous size and xterm-256color.
+                ch.get_pty(term='xterm-256color', width=220, height=50)
+                ch.exec_command(cmd)
+                return ch
+            ch = await asyncio.to_thread(_open_ssh_channel, session.client, command)
+            # We work with ch directly (no ChannelFile wrappers), so there
+            # is no stdin.__del__ -> shutdown_write() GC hazard to guard against.
+            channel = SSHChannel(ch)
 
         elif session.type == "local":
             if PTY_AVAILABLE:
