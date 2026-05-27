@@ -85,7 +85,7 @@ class SSHChannel(Channel):
             pass
 
     async def send_signal(self, sig: bytes) -> None:
-        await asyncio.to_thread(self._ch.sendall, sig)
+        await self.write(sig)
 
 
 # ---------------------------------------------------------------------------

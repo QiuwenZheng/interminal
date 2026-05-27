@@ -69,4 +69,8 @@ class RunningCommand:
     async def close(self):
         self.running = False
         self.read_task.cancel()
+        try:
+            await self.read_task
+        except (asyncio.CancelledError, Exception):
+            pass
         await self.channel.close()

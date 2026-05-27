@@ -209,8 +209,8 @@ class SessionManager:
         self,
         session_id: str,
         command: str,
-        pause_timeout: float = 2.0,
-        total_timeout: float = 30.0,
+        pause_timeout: float = 9.0,
+        total_timeout: float = 20.0,
     ) -> dict:
         if session_id not in self.sessions:
             raise ValueError("Invalid session_id")
@@ -251,8 +251,8 @@ class SessionManager:
         self,
         command_id: str,
         text: str,
-        pause_timeout: float = 2.0,
-        total_timeout: float = 30.0,
+        pause_timeout: float = 9.0,
+        total_timeout: float = 20.0,
     ) -> dict:
         if command_id not in self.commands:
             raise ValueError("Invalid command_id")
@@ -264,8 +264,8 @@ class SessionManager:
     async def poll_command(
         self,
         command_id: str,
-        pause_timeout: float = 2.0,
-        total_timeout: float = 30.0,
+        pause_timeout: float = 9.0,
+        total_timeout: float = 20.0,
     ) -> dict:
         if command_id not in self.commands:
             raise ValueError("Invalid command_id")
@@ -275,8 +275,8 @@ class SessionManager:
         self,
         command_id: str,
         signal: str,
-        pause_timeout: float = 2.0,
-        total_timeout: float = 10.0,
+        pause_timeout: float = 9.0,
+        total_timeout: float = 20.0,
     ) -> dict:
         if command_id not in self.commands:
             raise ValueError("Invalid command_id")
