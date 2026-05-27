@@ -40,22 +40,6 @@ KEY PATTERNS (read before first use to save discovery loops):
    NOT `respond`. Most AI frameworks strip control bytes from string
    arguments; `send_control`'s string-keyed enum bypasses that filter.
 
-6. Timeouts on execute / respond / read_output / send_control are a PAIR
-   and control different things — they are NOT redundant:
-
-     pause_timeout = seconds of OUTPUT SILENCE before returning. After
-       the last byte arrives, if nothing new comes in this many seconds,
-       the call returns status="partial".
-     total_timeout = hard cap on the call's wall-clock duration.
-
-   For a SILENT process, return time is dominated by pause_timeout — the
-   call returns after roughly pause_timeout + 1 seconds regardless of
-   how large total_timeout is. Raising total_timeout while keeping
-   pause_timeout at its default does NOTHING to make the call wait
-   longer. To poll longer on a quiet job, raise pause_timeout:
-
-     read_output(cid, pause_timeout=30, total_timeout=600)
-     # tolerates 30s of silence per call, max 10 minutes wall-clock
 """,
 )
 manager = SessionManager()
