@@ -230,7 +230,7 @@ class SessionManager:
                 # pins TUI apps like zellij to a tiny viewport for as long
                 # as this channel stays open. Use the low-level API so we
                 # can request a generous size and xterm-256color.
-                ch.get_pty(term='xterm-256color', width=220, height=50)
+                ch.get_pty(term='xterm-256color', width=500, height=200)
                 ch.exec_command(cmd)
                 return ch
             ch = await asyncio.to_thread(_open_ssh_channel, session.client, command)
