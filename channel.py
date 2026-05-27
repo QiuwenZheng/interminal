@@ -153,11 +153,18 @@ if PTY_AVAILABLE:
                 self._proc = None
             else:
                 master, slave = pty_mod.openpty()
-                self._proc = subprocess.Popen(
-                    [shell, "-c", command],
-                    stdin=slave, stdout=slave, stderr=slave,
-                    preexec_fn=os.setsid,
-                )
+                try:
+                    self._proc = subprocess.Popen(
+                        [shell, "-c", command],
+                        stdin=slave, stdout=slave, stderr=slave,
+                        preexec_fn=os.setsid,
+                    )
+                except Exception:
+                    # Popen failed (bad shell path, ENOMEM, EPERM, ...).
+                    # Without this both PTY fds would leak.
+                    os.close(master)
+                    os.close(slave)
+                    raise
                 os.close(slave)
                 self._fd = master
                 flags = fcntl.fcntl(self._fd, fcntl.F_GETFL)

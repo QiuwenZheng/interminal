@@ -156,17 +156,23 @@ class SessionManager:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        kwargs = {"hostname": host, "port": port, "username": username}
-        if password is not None:
-            kwargs["password"] = password
-        if key_filepath is not None:
-            kwargs["key_filename"] = key_filepath
+        # paramiko's connect() accepts None for password / key_filename, so the
+        # conditional kwargs build is unnecessary.
+        await asyncio.to_thread(
+            client.connect,
+            hostname=host, port=port, username=username,
+            password=password, key_filename=key_filepath,
+        )
 
-        await asyncio.to_thread(client.connect, **kwargs)
-
-        client.get_transport().set_keepalive(30)
-
-        banner = await self._capture_ssh_banner(client, banner_timeout)
+        # Once connect() succeeds, the SSH socket is live. If banner capture
+        # or any setup below fails, we must close the client ourselves —
+        # otherwise the socket leaks (it isn't tracked in self.sessions yet).
+        try:
+            client.get_transport().set_keepalive(30)
+            banner = await self._capture_ssh_banner(client, banner_timeout)
+        except Exception:
+            client.close()
+            raise
 
         session_id = str(uuid.uuid4())
         self.sessions[session_id] = Session(
@@ -237,7 +243,9 @@ class SessionManager:
 
         command_id = str(uuid.uuid4())
         self.commands[command_id] = RunningCommand(channel, session_id)
-        return await self._wait_for_result(command_id, pause_timeout, total_timeout)
+        return await self._wait_for_result(
+            command_id, pause_timeout, total_timeout, is_first_exec=True,
+        )
 
     async def respond_to_command(
         self,
@@ -287,39 +295,62 @@ class SessionManager:
         command_id: str,
         pause_timeout: float = 2.0,
         total_timeout: float = 30.0,
+        is_first_exec: bool = False,
     ) -> dict:
         cmd = self.commands[command_id]
         start = asyncio.get_running_loop().time()
 
-        # Phase 1: wait for initial data to arrive
-        cmd.new_data_event.clear()
-        initial_wait = min(pause_timeout + 1.0, total_timeout)
         try:
-            await asyncio.wait_for(cmd.new_data_event.wait(), timeout=initial_wait)
-        except asyncio.TimeoutError:
-            pass
+            # Phase 1: wait for the first byte to arrive.
+            # Skip if buffer already has data (background output between
+            # calls) or the command has already finished — otherwise the
+            # clear() below would drop the "data arrived" signal and we'd
+            # waste pause_timeout+1s for nothing.
+            if not cmd.buffer and cmd.running:
+                cmd.new_data_event.clear()
+                initial_wait = min(pause_timeout + 1.0, total_timeout)
+                try:
+                    await asyncio.wait_for(cmd.new_data_event.wait(), timeout=initial_wait)
+                except asyncio.TimeoutError:
+                    pass
 
-        # Phase 2: keep collecting until pause or total timeout
-        while cmd.running:
-            elapsed = asyncio.get_running_loop().time() - start
-            if elapsed >= total_timeout:
-                break
+            # Phase 2: keep collecting until pause or total timeout
+            while cmd.running:
+                elapsed = asyncio.get_running_loop().time() - start
+                if elapsed >= total_timeout:
+                    break
 
-            cmd.new_data_event.clear()
-            try:
-                await asyncio.wait_for(cmd.new_data_event.wait(), timeout=pause_timeout)
-            except asyncio.TimeoutError:
-                break
+                cmd.new_data_event.clear()
+                try:
+                    await asyncio.wait_for(cmd.new_data_event.wait(), timeout=pause_timeout)
+                except asyncio.TimeoutError:
+                    break
+        except BaseException:
+            # If a brand-new execute is cancelled mid-wait, the caller never
+            # received command_id and can't clean it up. Drop the orphan
+            # here so the background read loop doesn't run forever.
+            # Later poll / respond / send_control cancellations leave the
+            # command alive so it can keep running in the background.
+            if is_first_exec:
+                self.commands.pop(command_id, None)
+                try:
+                    await cmd.close()
+                except Exception:
+                    pass
+            raise
 
         # Collect all buffered output and check status
         output = cmd.read_output()
-        if PYTE_AVAILABLE and output:
+        # Only run the pyte virtual-terminal pass when the output actually
+        # contains ANSI escape sequences. Plain text would otherwise be
+        # wrapped at 200 columns by the pyte screen.
+        if PYTE_AVAILABLE and output and "\x1b" in output:
             output = self._render_pyte(output)
         is_finished, exit_code = cmd.check_status()
 
         if is_finished:
             await cmd.close()
-            del self.commands[command_id]
+            self.commands.pop(command_id, None)
             return {
                 "status": "completed",
                 "output": output,
@@ -346,19 +377,24 @@ class SessionManager:
         if session_id not in self.sessions:
             raise ValueError("Invalid session_id")
 
-        session = self.sessions[session_id]
-        del self.sessions[session_id]
+        session = self.sessions.pop(session_id)
 
-        # Close commands first (while transport is still open for clean channel close)
-        dead = [cid for cid, cmd in self.commands.items()
-                if cmd.session_id == session_id]
-        for cid in dead:
-            await self.commands[cid].close()
-            del self.commands[cid]
-
-        # Then close the underlying client
-        if session.type == "ssh" and session.client is not None:
-            session.client.close()
+        # Close commands first (while transport is still open for clean
+        # channel close). Wrap in try/finally so a failing cmd.close()
+        # doesn't leak the underlying SSH client.
+        try:
+            dead = [cid for cid, cmd in self.commands.items()
+                    if cmd.session_id == session_id]
+            for cid in dead:
+                try:
+                    await self.commands[cid].close()
+                except Exception as e:
+                    logger.warning("Error closing command %s: %s", cid, e)
+                finally:
+                    self.commands.pop(cid, None)
+        finally:
+            if session.type == "ssh" and session.client is not None:
+                session.client.close()
 
         return True
 
