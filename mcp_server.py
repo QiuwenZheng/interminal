@@ -1,5 +1,6 @@
 from mcp.server.fastmcp import FastMCP
 from typing import Optional, Annotated
+from pydantic import Field
 from session_manager import SessionManager
 
 mcp = FastMCP(
@@ -47,12 +48,12 @@ manager = SessionManager()
 
 @mcp.tool()
 async def connect_ssh(
-    host: Annotated[str, "The hostname or IP address of the SSH server to connect to (e.g., '192.168.1.10' or 'example.com')"],
-    port: Annotated[int, "The port number of the SSH server (default is 22)"] = 22,
-    username: Annotated[Optional[str], "Optional username for authentication. If omitted, the connection will use SSH agent or system defaults"] = None,
-    password: Annotated[Optional[str], "Optional password for password-based authentication. If using key-based authentication, this can be omitted"] = None,
-    key_filepath: Annotated[Optional[str], "Optional absolute path to a private key file (SSH key) for key-based authentication"] = None,
-    banner_timeout: Annotated[float, "The timeout in seconds to wait for the MOTD/welcome banner after the connection opens"] = 2.0,
+    host: Annotated[str, Field(description="The hostname or IP address of the SSH server to connect to (e.g., '192.168.1.10' or 'example.com')")],
+    port: Annotated[int, Field(description="The port number of the SSH server (default is 22)")] = 22,
+    username: Annotated[Optional[str], Field(description="Optional username for authentication. If omitted, the connection will use SSH agent or system defaults")] = None,
+    password: Annotated[Optional[str], Field(description="Optional password for password-based authentication. If using key-based authentication, this can be omitted")] = None,
+    key_filepath: Annotated[Optional[str], Field(description="Optional absolute path to a private key file (SSH key) for key-based authentication")] = None,
+    banner_timeout: Annotated[float, Field(description="The timeout in seconds to wait for the MOTD/welcome banner after the connection opens")] = 2.0,
 ) -> dict:
     """
     Establishes a persistent, stateful connection to a remote SSH server, automatically accepting host keys.
@@ -87,7 +88,7 @@ async def connect_ssh(
 
 @mcp.tool()
 def create_local(
-    shell: Annotated[Optional[str], "Optional absolute path or executable name of the shell to use (e.g., 'powershell.exe', '/bin/bash', '/bin/zsh'). If omitted, defaults to cmd.exe on Windows or /bin/bash on Unix/macOS."] = None
+    shell: Annotated[Optional[str], Field(description="Optional absolute path or executable name of the shell to use (e.g., 'powershell.exe', '/bin/bash', '/bin/zsh'). If omitted, defaults to cmd.exe on Windows or /bin/bash on Unix/macOS.")] = None
 ) -> str:
     """
     Creates a persistent local terminal session (PTY on supported platforms).
@@ -110,10 +111,10 @@ def create_local(
 
 @mcp.tool()
 async def execute(
-    session_id: Annotated[str, "The unique session identifier returned by connect_ssh or create_local"],
-    command: Annotated[str, "The shell command to execute (e.g., 'ls -la' or 'npm run build'). Can chain multiple commands with && or ;"],
-    pause_timeout: Annotated[float, "Seconds of output silence to wait before returning a partial response (default is 9.0)"] = 9.0,
-    total_timeout: Annotated[float, "Hard cap in seconds on the maximum duration of this call (default is 20.0)"] = 20.0,
+    session_id: Annotated[str, Field(description="The unique session identifier returned by connect_ssh or create_local")],
+    command: Annotated[str, Field(description="The shell command to execute (e.g., 'ls -la' or 'npm run build'). Can chain multiple commands with && or ;")],
+    pause_timeout: Annotated[float, Field(description="Seconds of output silence to wait before returning a partial response (default is 9.0)")] = 9.0,
+    total_timeout: Annotated[float, Field(description="Hard cap in seconds on the maximum duration of this call (default is 20.0)")] = 20.0,
 ) -> dict:
     """
     Execute a command in a session (SSH or local). Always use this to run
@@ -146,10 +147,10 @@ async def execute(
 
 @mcp.tool()
 async def respond(
-    command_id: Annotated[str, "The active command_id returned in a partial status response that is waiting for input"],
-    text: Annotated[str, "The text input to send to the command (e.g. 'y' for prompts, passwords, etc.). Newline is auto-appended"],
-    pause_timeout: Annotated[float, "Seconds of output silence to wait before returning (default is 9.0)"] = 9.0,
-    total_timeout: Annotated[float, "Hard cap in seconds on the maximum duration of this call (default is 20.0)"] = 20.0,
+    command_id: Annotated[str, Field(description="The active command_id returned in a partial status response that is waiting for input")],
+    text: Annotated[str, Field(description="The text input to send to the command (e.g. 'y' for prompts, passwords, etc.). Newline is auto-appended")],
+    pause_timeout: Annotated[float, Field(description="Seconds of output silence to wait before returning (default is 9.0)")] = 9.0,
+    total_timeout: Annotated[float, Field(description="Hard cap in seconds on the maximum duration of this call (default is 20.0)")] = 20.0,
 ) -> dict:
     """
     Send text input to a command that returned status="partial" and is
@@ -175,9 +176,9 @@ async def respond(
 
 @mcp.tool()
 async def read_output(
-    command_id: Annotated[str, "The active command_id returned in a partial status response"],
-    pause_timeout: Annotated[float, "Seconds of output silence to wait before returning (default is 9.0)"] = 9.0,
-    total_timeout: Annotated[float, "Hard cap in seconds on the maximum duration of this call (default is 20.0)"] = 20.0,
+    command_id: Annotated[str, Field(description="The active command_id returned in a partial status response")],
+    pause_timeout: Annotated[float, Field(description="Seconds of output silence to wait before returning (default is 9.0)")] = 9.0,
+    total_timeout: Annotated[float, Field(description="Hard cap in seconds on the maximum duration of this call (default is 20.0)")] = 20.0,
 ) -> dict:
     """
     Read new output from a running command without sending any input.
@@ -199,10 +200,10 @@ async def read_output(
 
 @mcp.tool()
 async def send_control(
-    command_id: Annotated[str, "The active command_id returned in a partial status response"],
-    signal: Annotated[str, "The control signal or key to send. Supported values: 'ctrl+c', 'ctrl+z', 'ctrl+d', arrow keys, enter, f1-f12, etc."] = "ctrl+c",
-    pause_timeout: Annotated[float, "Seconds of output silence to wait before returning (default is 9.0)"] = 9.0,
-    total_timeout: Annotated[float, "Hard cap in seconds on the maximum duration of this call (default is 20.0)"] = 20.0,
+    command_id: Annotated[str, Field(description="The active command_id returned in a partial status response")],
+    signal: Annotated[str, Field(description="The control signal or key to send. Supported values: 'ctrl+c', 'ctrl+z', 'ctrl+d', arrow keys, enter, f1-f12, etc.")] = "ctrl+c",
+    pause_timeout: Annotated[float, Field(description="Seconds of output silence to wait before returning (default is 9.0)")] = 9.0,
+    total_timeout: Annotated[float, Field(description="Hard cap in seconds on the maximum duration of this call (default is 20.0)")] = 20.0,
 ) -> dict:
     """
     Send a control key/signal to a running command. Use this whenever a
@@ -241,7 +242,7 @@ async def send_control(
 
 @mcp.tool()
 async def disconnect(
-    session_id: Annotated[str, "The unique session identifier returned by connect_ssh or create_local that you want to close"]
+    session_id: Annotated[str, Field(description="The unique session identifier returned by connect_ssh or create_local that you want to close")]
 ) -> bool:
     """
     Gracefully disconnects from an active terminal session (SSH or local) and cleans up all associated resources.
