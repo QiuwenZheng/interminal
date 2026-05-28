@@ -55,11 +55,21 @@ async def connect_ssh(
     banner_timeout: float = 2.0,
 ) -> dict:
     """
-    Establishes connection to an SSH server, automatically accepting host keys.
-    Returns dict with session_id and banner (MOTD/welcome message).
+    Establishes a connection to an SSH server, automatically accepting host keys.
+    Creates a persistent SSH session that can be driven interactively.
 
     Args:
-    - banner_timeout: seconds to wait for MOTD after shell open (default 2.0)
+        host: The hostname or IP address of the SSH server to connect to.
+        port: The port number of the SSH server (default is 22).
+        username: Optional username for SSH authentication.
+        password: Optional password for SSH authentication.
+        key_filepath: Optional absolute file path to a private key (SSH key) for authentication.
+        banner_timeout: The timeout in seconds to wait for the MOTD/welcome banner after the connection opens (default is 2.0).
+
+    Returns:
+        A dictionary containing:
+            - session_id: Unique identifier for the created SSH session (use this for execute commands).
+            - banner: The server's welcome message/MOTD, or an empty string if timeout.
     """
     return await manager.connect_ssh(host, port, username, password, key_filepath, banner_timeout)
 
@@ -210,8 +220,14 @@ async def send_control(
 @mcp.tool()
 async def disconnect(session_id: str) -> bool:
     """
-    Disconnects from the session and cleans up all resources.
-    Works for both SSH and local sessions.
+    Disconnects from the active session (SSH or local) and cleans up all associated resources.
+    Terminates running background commands, closes PTYs, and terminates connection sockets.
+
+    Args:
+        session_id: The unique session identifier returned by connect_ssh or create_local.
+
+    Returns:
+        True if the session was successfully disconnected and cleaned up, False otherwise.
     """
     return await manager.disconnect(session_id)
 
