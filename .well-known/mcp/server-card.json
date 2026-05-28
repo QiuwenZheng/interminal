@@ -1,0 +1,177 @@
+{
+  "serverInfo": {
+    "name": "interminal",
+    "version": "1.0.4"
+  },
+  "tools": [
+    {
+      "name": "connect_ssh",
+      "description": "Establishes a persistent, stateful connection to a remote SSH server, automatically accepting host keys.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "description": "The hostname or IP address of the SSH server to connect to."
+          },
+          "port": {
+            "type": "integer",
+            "description": "The port number of the SSH server (default is 22)."
+          },
+          "username": {
+            "type": "string",
+            "description": "Optional username for SSH authentication."
+          },
+          "password": {
+            "type": "string",
+            "description": "Optional password for password-based authentication."
+          },
+          "key_filepath": {
+            "type": "string",
+            "description": "Optional absolute path to a private key file (SSH key) for authentication."
+          },
+          "banner_timeout": {
+            "type": "number",
+            "description": "The timeout in seconds to wait for the MOTD/welcome banner (default is 2.0)."
+          }
+        },
+        "required": ["host"]
+      }
+    },
+    {
+      "name": "create_local",
+      "description": "Creates a persistent local terminal session (PTY on supported platforms).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "shell": {
+            "type": "string",
+            "description": "Optional absolute path or executable name of the shell to use (e.g., 'powershell.exe', '/bin/bash')."
+          }
+        }
+      }
+    },
+    {
+      "name": "execute",
+      "description": "Execute a command in a session (SSH or local).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "The unique session identifier returned by connect_ssh or create_local."
+          },
+          "command": {
+            "type": "string",
+            "description": "The shell command to execute."
+          },
+          "pause_timeout": {
+            "type": "number",
+            "description": "Seconds of output silence to wait before returning a partial response (default is 9.0)."
+          },
+          "total_timeout": {
+            "type": "number",
+            "description": "Hard cap in seconds on the maximum duration of this call (default is 20.0)."
+          }
+        },
+        "required": ["session_id", "command"]
+      }
+    },
+    {
+      "name": "respond",
+      "description": "Send text input to a command that returned status='partial' and is waiting at a prompt.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "command_id": {
+            "type": "string",
+            "description": "The active command_id returned in a partial status response."
+          },
+          "text": {
+            "type": "string",
+            "description": "The text input to send to the command."
+          },
+          "pause_timeout": {
+            "type": "number",
+            "description": "Seconds of output silence to wait before returning (default is 9.0)."
+          },
+          "total_timeout": {
+            "type": "number",
+            "description": "Hard cap in seconds on the maximum duration of this call (default is 20.0)."
+          }
+        },
+        "required": ["command_id", "text"]
+      }
+    },
+    {
+      "name": "read_output",
+      "description": "Read new output from a running command without sending any input.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "command_id": {
+            "type": "string",
+            "description": "The active command_id returned in a partial status response."
+          },
+          "pause_timeout": {
+            "type": "number",
+            "description": "Seconds of output silence to wait before returning (default is 9.0)."
+          },
+          "total_timeout": {
+            "type": "number",
+            "description": "Hard cap in seconds on the maximum duration of this call (default is 20.0)."
+          }
+        },
+        "required": ["command_id"]
+      }
+    },
+    {
+      "name": "send_control",
+      "description": "Send a control key/signal to a running command.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "command_id": {
+            "type": "string",
+            "description": "The active command_id returned in a partial status response."
+          },
+          "signal": {
+            "type": "string",
+            "description": "The control signal or key to send (e.g. 'ctrl+c', 'ctrl+z', arrow keys)."
+          },
+          "pause_timeout": {
+            "type": "number",
+            "description": "Seconds of output silence to wait before returning (default is 9.0)."
+          },
+          "total_timeout": {
+            "type": "number",
+            "description": "Hard cap in seconds on the maximum duration of this call (default is 20.0)."
+          }
+        },
+        "required": ["command_id"]
+      }
+    },
+    {
+      "name": "disconnect",
+      "description": "Gracefully disconnects from an active terminal session (SSH or local) and cleans up all associated resources.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "The unique session identifier returned by connect_ssh or create_local."
+          }
+        },
+        "required": ["session_id"]
+      }
+    },
+    {
+      "name": "list_sessions",
+      "description": "List all currently active terminal sessions (SSH and local) managed by this server.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}
