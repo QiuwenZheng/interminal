@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.QiuwenZheng/interminal",
+  "title": "Interminal",
+  "description": "Lightweight MCP server that gives AI assistants terminal access — SSH and local shells — with support for interactive and long-running commands.",
+  "repository": {
+    "url": "https://github.com/QiuwenZheng/interminal",
+    "source": "github"
+  },
+  "version": "1.0.3",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "mcp-interminal",
+      "version": "1.0.3",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 # Interminal
 
+<!-- mcp-name: io.github.QiuwenZheng/interminal -->
+
 Lightweight MCP server that gives AI assistants terminal access — SSH and local shells — with support for interactive and long-running commands.
 
 ## Installation
