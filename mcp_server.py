@@ -87,11 +87,23 @@ async def connect_ssh(
 
 @mcp.tool()
 def create_local(
-    shell: Annotated[Optional[str], "Optional shell path or name to use (e.g., '/bin/bash', '/bin/zsh', 'powershell.exe'). If omitted, defaults to cmd.exe on Windows or /bin/bash on Unix"] = None
+    shell: Annotated[Optional[str], "Optional absolute path or executable name of the shell to use (e.g., 'powershell.exe', '/bin/bash', '/bin/zsh'). If omitted, defaults to cmd.exe on Windows or /bin/bash on Unix/macOS."] = None
 ) -> str:
     """
     Creates a persistent local terminal session (PTY on supported platforms).
-    Returns a unique session_id to drive the shell.
+    Starts a local shell process that remains active across tool calls.
+
+    BEHAVIOR & SIDE EFFECTS:
+    - Spawns a shell process running locally on the server host machine.
+    - Commands run in this shell execute with the permissions of the user running the MCP server process.
+    - Side effects include full read/write file access and execution privileges on the host system.
+
+    SAFETY PROFILE:
+    - This tool gives the client access to the local machine's shell. Use with caution.
+    - No automatic rate limits or destructive filters are applied. Ensure commands executed are safe.
+
+    Returns:
+        A unique session_id to identify and drive the created local shell session.
     """
     return manager.create_local(shell)
 
@@ -252,9 +264,24 @@ async def disconnect(
 @mcp.tool()
 def list_sessions() -> list[dict]:
     """
-    List all active sessions with their type and metadata.
-    Returns a list of dicts, each containing session_id, type, and
-    type-specific info (host/port for SSH, shell for local).
+    List all currently active terminal sessions (SSH and local) managed by this server.
+
+    USAGE GUIDELINES:
+    - Use this tool to discover existing sessions, check connection statuses, and retrieve active session_ids.
+    - Recommended prerequisite: Call this tool before executing commands if you need to resume or verify an existing session.
+    - Do NOT use this tool if you already know the session_id and just want to run commands directly.
+
+    ALTERNATIVES:
+    - If you want to create a new session instead of listing existing ones, use create_local or connect_ssh.
+    - If you want to stop/close an active session, use disconnect.
+
+    Returns:
+        A list of dictionaries, each containing:
+            - session_id: Unique identifier of the session.
+            - type: Either 'ssh' or 'local'.
+            - host (SSH only): The remote hostname connected to.
+            - port (SSH only): The remote port connected to.
+            - shell (local only): The shell executable running.
     """
     return manager.list_sessions()
 
