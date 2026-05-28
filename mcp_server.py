@@ -1,5 +1,5 @@
 from mcp.server.fastmcp import FastMCP
-from typing import Optional
+from typing import Optional, Annotated
 from session_manager import SessionManager
 
 mcp = FastMCP(
@@ -47,24 +47,35 @@ manager = SessionManager()
 
 @mcp.tool()
 async def connect_ssh(
-    host: str,
-    port: int = 22,
-    username: Optional[str] = None,
-    password: Optional[str] = None,
-    key_filepath: Optional[str] = None,
-    banner_timeout: float = 2.0,
+    host: Annotated[str, "The hostname or IP address of the SSH server to connect to (e.g., '192.168.1.10' or 'example.com')"],
+    port: Annotated[int, "The port number of the SSH server (default is 22)"] = 22,
+    username: Annotated[Optional[str], "Optional username for authentication. If omitted, the connection will use SSH agent or system defaults"] = None,
+    password: Annotated[Optional[str], "Optional password for password-based authentication. If using key-based authentication, this can be omitted"] = None,
+    key_filepath: Annotated[Optional[str], "Optional absolute path to a private key file (SSH key) for key-based authentication"] = None,
+    banner_timeout: Annotated[float, "The timeout in seconds to wait for the MOTD/welcome banner after the connection opens"] = 2.0,
 ) -> dict:
     """
-    Establishes a connection to an SSH server, automatically accepting host keys.
-    Creates a persistent SSH session that can be driven interactively.
+    Establishes a persistent, stateful connection to a remote SSH server, automatically accepting host keys.
+    This session remains active across tool calls, allowing multiple execute commands to run sequentially.
 
-    Args:
-        host: The hostname or IP address of the SSH server to connect to.
-        port: The port number of the SSH server (default is 22).
-        username: Optional username for SSH authentication.
-        password: Optional password for SSH authentication.
-        key_filepath: Optional absolute file path to a private key (SSH key) for authentication.
-        banner_timeout: The timeout in seconds to wait for the MOTD/welcome banner after the connection opens (default is 2.0).
+    CONNECTION LIFECYCLE:
+    - Initiates connection and performs handshake.
+    - Waits up to `banner_timeout` seconds to capture the MOTD/welcome banner.
+    - Returns a persistent session_id representing this connection.
+    - The connection remains open until explicitly closed using the `disconnect` tool.
+
+    AUTHENTICATION METHODS:
+    - Username & Password: Use 'username' and 'password' arguments.
+    - Key-based (Recommended): Provide 'username' and 'key_filepath' (absolute path to private key).
+    - If both password and private key are provided, key-based authentication is attempted first.
+
+    DEFAULT BEHAVIORS:
+    - Automatically trusts and accepts SSH host keys (no prompt).
+    - Starts a remote shell session ready to execute commands.
+
+    ERROR HANDLING:
+    - Raises exceptions for authentication failures, hostname resolution issues, or connection timeouts.
+    - Ensure paths provided in 'key_filepath' are absolute and readable by the server process.
 
     Returns:
         A dictionary containing:
@@ -75,23 +86,22 @@ async def connect_ssh(
 
 
 @mcp.tool()
-def create_local(shell: Optional[str] = None) -> str:
+def create_local(
+    shell: Annotated[Optional[str], "Optional shell path or name to use (e.g., '/bin/bash', '/bin/zsh', 'powershell.exe'). If omitted, defaults to cmd.exe on Windows or /bin/bash on Unix"] = None
+) -> str:
     """
-    Creates a local terminal session.
-    Returns a session_id for subsequent operations.
-
-    Args:
-    - shell: shell to use (default: cmd.exe on Windows, /bin/bash on Unix)
+    Creates a persistent local terminal session (PTY on supported platforms).
+    Returns a unique session_id to drive the shell.
     """
     return manager.create_local(shell)
 
 
 @mcp.tool()
 async def execute(
-    session_id: str,
-    command: str,
-    pause_timeout: float = 9.0,
-    total_timeout: float = 20.0,
+    session_id: Annotated[str, "The unique session identifier returned by connect_ssh or create_local"],
+    command: Annotated[str, "The shell command to execute (e.g., 'ls -la' or 'npm run build'). Can chain multiple commands with && or ;"],
+    pause_timeout: Annotated[float, "Seconds of output silence to wait before returning a partial response (default is 9.0)"] = 9.0,
+    total_timeout: Annotated[float, "Hard cap in seconds on the maximum duration of this call (default is 20.0)"] = 20.0,
 ) -> dict:
     """
     Execute a command in a session (SSH or local). Always use this to run
@@ -124,10 +134,10 @@ async def execute(
 
 @mcp.tool()
 async def respond(
-    command_id: str,
-    text: str,
-    pause_timeout: float = 9.0,
-    total_timeout: float = 20.0,
+    command_id: Annotated[str, "The active command_id returned in a partial status response that is waiting for input"],
+    text: Annotated[str, "The text input to send to the command (e.g. 'y' for prompts, passwords, etc.). Newline is auto-appended"],
+    pause_timeout: Annotated[float, "Seconds of output silence to wait before returning (default is 9.0)"] = 9.0,
+    total_timeout: Annotated[float, "Hard cap in seconds on the maximum duration of this call (default is 20.0)"] = 20.0,
 ) -> dict:
     """
     Send text input to a command that returned status="partial" and is
@@ -153,9 +163,9 @@ async def respond(
 
 @mcp.tool()
 async def read_output(
-    command_id: str,
-    pause_timeout: float = 9.0,
-    total_timeout: float = 20.0,
+    command_id: Annotated[str, "The active command_id returned in a partial status response"],
+    pause_timeout: Annotated[float, "Seconds of output silence to wait before returning (default is 9.0)"] = 9.0,
+    total_timeout: Annotated[float, "Hard cap in seconds on the maximum duration of this call (default is 20.0)"] = 20.0,
 ) -> dict:
     """
     Read new output from a running command without sending any input.
@@ -177,10 +187,10 @@ async def read_output(
 
 @mcp.tool()
 async def send_control(
-    command_id: str,
-    signal: str = "ctrl+c",
-    pause_timeout: float = 9.0,
-    total_timeout: float = 20.0,
+    command_id: Annotated[str, "The active command_id returned in a partial status response"],
+    signal: Annotated[str, "The control signal or key to send. Supported values: 'ctrl+c', 'ctrl+z', 'ctrl+d', arrow keys, enter, f1-f12, etc."] = "ctrl+c",
+    pause_timeout: Annotated[float, "Seconds of output silence to wait before returning (default is 9.0)"] = 9.0,
+    total_timeout: Annotated[float, "Hard cap in seconds on the maximum duration of this call (default is 20.0)"] = 20.0,
 ) -> dict:
     """
     Send a control key/signal to a running command. Use this whenever a
@@ -218,16 +228,23 @@ async def send_control(
 
 
 @mcp.tool()
-async def disconnect(session_id: str) -> bool:
+async def disconnect(
+    session_id: Annotated[str, "The unique session identifier returned by connect_ssh or create_local that you want to close"]
+) -> bool:
     """
-    Disconnects from the active session (SSH or local) and cleans up all associated resources.
-    Terminates running background commands, closes PTYs, and terminates connection sockets.
+    Gracefully disconnects from an active terminal session (SSH or local) and cleans up all associated resources.
 
-    Args:
-        session_id: The unique session identifier returned by connect_ssh or create_local.
+    BEHAVIOR:
+    - Terminates any running background commands and subprocesses associated with this session.
+    - Closes open PTY channels, SSH channels, and network sockets to release system resources.
+    - Removes the session from the active session manager.
 
-    Returns:
-        True if the session was successfully disconnected and cleaned up, False otherwise.
+    USAGE GUIDELINES:
+    - ALWAYS call this tool when you are finished executing commands on a session to prevent resource leaks (dangling processes/sockets).
+    - Do NOT call this tool if you intend to run more commands in this session later.
+    - ALTERNATIVES:
+      * To see all active sessions before disconnecting, use `list_sessions`.
+      * To stop a single running command inside the session without closing the entire connection, use `send_control` with "ctrl+c" instead of `disconnect`.
     """
     return await manager.disconnect(session_id)
 
