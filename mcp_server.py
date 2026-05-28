@@ -29,47 +29,17 @@ KEY PATTERNS (read before first use to save discovery loops):
    into independent daemons. The partial channel can then be ignored
    or left to time out; the daemon survives.
 
-4. For multiplexers, drive them via their OWN CLI from separate execute
-   calls. The multiplexer's CLI is the right channel — DON'T try to drive
-   the live TUI via interminal's respond/send_control. Sending keystrokes
-   through the multiplexer's own CLI (write-chars / send-keys) IS fine.
-
-   Run a command in a new PANE (splits the current tab):
-     execute("zellij --session train action new-pane -- bash start.sh")
-     execute("tmux send-keys -t train 'bash start.sh' Enter")
-
-   Run a command in a new TAB's default pane (no leftover empty pane).
-   zellij's `action new-tab` does NOT accept `-- cmd`, so chain write-chars:
-     execute("zellij --session train action new-tab --name v4")
-     execute("zellij --session train action write-chars 'bash start.sh'")
-     execute("zellij --session train action write 13")   # 13 = Enter byte
-   tmux is simpler — new-window takes the command directly:
-     execute("tmux new-window -t main -n train 'bash start.sh'")
-
-   Read what's on screen:
-     execute("zellij --session train action dump-screen")
-     execute("tmux capture-pane -t train -p")
+4. Non-obvious: zellij's `action new-tab` does NOT accept `-- cmd`.
+   To run a command in a new tab, chain write-chars instead:
+     execute("zellij --session s action new-tab --name v4")
+     execute("zellij --session s action write-chars 'bash start.sh'")
+     execute("zellij --session s action write 13")   # 13 = Enter byte
+   (new-pane DOES accept -- cmd and works normally.)
 
 5. To send control keys (Ctrl+C, arrows, F-keys, etc.) use `send_control`,
    NOT `respond`. Most AI frameworks strip control bytes from string
    arguments; `send_control`'s string-keyed enum bypasses that filter.
 
-6. Timeouts on execute / respond / read_output / send_control are a PAIR
-   and control different things — they are NOT redundant:
-
-     pause_timeout = seconds of OUTPUT SILENCE before returning. After
-       the last byte arrives, if nothing new comes in this many seconds,
-       the call returns status="partial".
-     total_timeout = hard cap on the call's wall-clock duration.
-
-   For a SILENT process, return time is dominated by pause_timeout — the
-   call returns after roughly pause_timeout + 1 seconds regardless of
-   how large total_timeout is. Raising total_timeout while keeping
-   pause_timeout at its default does NOTHING to make the call wait
-   longer. To poll longer on a quiet job, raise pause_timeout:
-
-     read_output(cid, pause_timeout=30, total_timeout=600)
-     # tolerates 30s of silence per call, max 10 minutes wall-clock
 """,
 )
 manager = SessionManager()

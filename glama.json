@@ -1,0 +1,13 @@
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "name": "interminal",
+  "description": "Lightweight MCP server that gives AI assistants terminal access — SSH and local shells — with support for interactive and long-running commands.",
+  "license": "MIT",
+  "homepage": "https://github.com/QiuwenZheng/interminal",
+  "install": {
+    "type": "pypi",
+    "package": "mcp-interminal",
+    "command": "uvx",
+    "args": ["mcp-interminal"]
+  }
+}
