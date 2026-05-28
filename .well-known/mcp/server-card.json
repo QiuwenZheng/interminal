@@ -173,5 +173,7 @@
         "properties": {}
       }
     }
-  ]
+  ],
+  "resources": [],
+  "prompts": []
 }
