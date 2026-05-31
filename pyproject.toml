@@ -16,5 +16,14 @@ interminal = "mcp_server:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+exclude = [
+  "/.venv",
+  "/dist",
+  "/__pycache__"
+]
+
 [tool.hatch.build.targets.wheel]
-packages = ["."]
+include = [
+  "/*.py"
+]

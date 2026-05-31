@@ -5,3 +5,4 @@ __pycache__
 .vscode
 uv.lock
 dist
+*.exe
