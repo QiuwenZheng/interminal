@@ -22,20 +22,25 @@ KEY PATTERNS (read before first use to save discovery loops):
        for user input
      - call `send_control(command_id, "ctrl+c")` etc. for control keys
 
-3. NEVER background a TUI app with `&` (zellij, tmux, vim, htop). The
-   shell exits immediately, the process lands in a background process
-   group, and the TUI's init bails out before it can daemonize. Start
-   it in the FOREGROUND — execute returns "partial", and well-behaved
-   servers (zellij, tmux) will have already fork+setsid'd themselves
-   into independent daemons. The partial channel can then be ignored
-   or left to time out; the daemon survives.
+3. TUI APPS & MULTIPLEXERS (zellij, tmux):
+   NEVER background a TUI app with `&`. The shell exits immediately and the
+   TUI's init bails out before it can daemonize.
+   Start it in the FOREGROUND — execute returns "partial", and well-behaved
+   servers will have already fork+setsid'd themselves into independent daemons.
+   The partial channel can then be ignored; the daemon survives.
 
-4. Non-obvious: zellij's `action new-tab` does NOT accept `-- cmd`.
-   To run a command in a new tab, chain write-chars instead:
-     execute("zellij --session s action new-tab --name v4")
-     execute("zellij --session s action write-chars 'bash start.sh'")
-     execute("zellij --session s action write 13")   # 13 = Enter byte
-   (new-pane DOES accept -- cmd and works normally.)
+4. SENDING COMMANDS TO ZELLIJ/TMUX (Avoid Pane Proliferation):
+   Once a TUI session is running, you must use its CLI to send commands.
+   - RULE OF THUMB: By default, reuse the existing active pane by injecting
+     keystrokes directly. Do NOT create a new pane for every command unless
+     the current pane is actively blocked by a running process.
+   - To run a command in the current active pane:
+       execute("zellij --session s action write-chars 'npm run build'")
+       execute("zellij --session s action write 13")   # 13 = Enter byte
+   - To run a command in a NEW tab (Note: `new-tab` does NOT accept `-- cmd`):
+       execute("zellij --session s action new-tab --name v4")
+       execute("zellij --session s action write-chars 'bash start.sh'")
+       execute("zellij --session s action write 13")
 
 5. To send control keys (Ctrl+C, arrows, F-keys, etc.) use `send_control`,
    NOT `respond`. Most AI frameworks strip control bytes from string
