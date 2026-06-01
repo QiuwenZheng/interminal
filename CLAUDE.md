@@ -58,7 +58,7 @@ command.py             ← RunningCommand: background read loop, UTF-8 decoding
 3. `respond()` / `send_control()` write directly to the running command's channel.
 4. `disconnect()` closes the channel, terminates the subprocess/SSH client, and removes the session.
 
-## Using TUI multiplexers (zellij, tmux) over interminal
+## Persistent shell via multiplexers (zellij, tmux)
 
 Each `execute()` call creates an independent `exec_command` channel — there is no
 persistent shell between calls.

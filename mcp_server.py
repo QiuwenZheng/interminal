@@ -6,45 +6,50 @@ from session_manager import SessionManager
 mcp = FastMCP(
     "Interminal",
     instructions="""\
-Terminal access for AI: SSH and local shells with support for interactive
-and long-running commands.
+Terminal access for AI: SSH and local shells with support for interactive,
+long-running, and stateful tasks.
 
 KEY PATTERNS (read before first use to save discovery loops):
 
-1. Each `execute` call is an independent channel — there is no persistent
-   shell between calls. `cd /foo` does NOT carry over; chain with &&.
+1. SINGLE EXECUTE IS STATELESS:
+   Each `execute` call runs in an isolated channel. `cd /foo` does NOT
+   persist to the next call.
+   - Simple 1-2 step tasks: chain with && (e.g. "cd /foo && ls").
+   - Multi-step workflows needing persistent state (cd, env vars, venv,
+     long-running processes): start a Zellij session and drive it via CLI
+     — see patterns 2-4 below.
 
-2. Long-running / interactive command returns status="partial" with a
-   command_id. To get more output:
-     - call `read_output(command_id)` when no input is needed (polling
-       a training run, build, find, etc.)
-     - call `respond(command_id, text)` only when the command is waiting
-       for user input
-     - call `send_control(command_id, "ctrl+c")` etc. for control keys
+2. PERSISTENT SHELL via Zellij:
+   Start a Zellij session for any stateful, ongoing workspace. The daemon
+   keeps the shell alive on the host; the user can `zellij attach <name>`
+   to observe your work in real-time or provide input (sudo, credentials).
+   NEVER background with `&` — start in the FOREGROUND. `execute` returns
+   "partial" once the daemon is up; ignore/abandon this partial channel.
+   Use a deterministic session name based on the project or task (e.g.
+   "myproject-dev") so you can resume after reconnection.
+   If Zellij is not available, tmux is a viable alternative.
 
-3. TUI APPS & MULTIPLEXERS (zellij, tmux):
-   NEVER background a TUI app with `&`. The shell exits immediately and the
-   TUI's init bails out before it can daemonize.
-   Start it in the FOREGROUND — execute returns "partial", and well-behaved
-   servers will have already fork+setsid'd themselves into independent daemons.
-   The partial channel can then be ignored; the daemon survives.
-
-4. SENDING COMMANDS TO ZELLIJ/TMUX (Avoid Pane Proliferation):
-   Once a TUI session is running, you must use its CLI to send commands.
-   - RULE OF THUMB: By default, reuse the existing active pane by injecting
-     keystrokes directly. Do NOT create a new pane for every command unless
-     the current pane is actively blocked by a running process.
-   - To run a command in the current active pane:
+3. DRIVING ZELLIJ (Avoid Pane Proliferation):
+   Once the session is running, use its CLI. REUSE the active pane by
+   default — do NOT create a new pane/tab for every command.
+   - Run command in current pane:
        execute("zellij --session s action write-chars 'npm run build'")
        execute("zellij --session s action write 13")   # 13 = Enter byte
-   - To run a command in a NEW tab (Note: `new-tab` does NOT accept `-- cmd`):
+   - Run command in a NEW tab (`new-tab` does NOT accept `-- cmd`):
        execute("zellij --session s action new-tab --name v4")
        execute("zellij --session s action write-chars 'bash start.sh'")
        execute("zellij --session s action write 13")
+   - Read current screen content:
+       execute("zellij --session s action dump-screen /tmp/out.txt")
+       execute("cat /tmp/out.txt")
 
-5. To send control keys (Ctrl+C, arrows, F-keys, etc.) use `send_control`,
-   NOT `respond`. Most AI frameworks strip control bytes from string
-   arguments; `send_control`'s string-keyed enum bypasses that filter.
+4. INTERACTIVE & LONG-RUNNING COMMANDS (without multiplexer):
+   Commands that produce ongoing output return status="partial" with a
+   command_id. To continue:
+     - read_output(command_id) — poll for logs, build output, etc.
+     - respond(command_id, text) — answer a prompt (y/n, password).
+     - send_control(command_id, signal) — send Ctrl+C, arrows, F-keys.
+       Do NOT write control bytes into `respond`; AI frameworks strip them.
 
 """,
 )
@@ -117,14 +122,17 @@ def create_local(
 @mcp.tool()
 async def execute(
     session_id: Annotated[str, Field(description="The unique session identifier returned by connect_ssh or create_local")],
-    command: Annotated[str, Field(description="The shell command to execute (e.g., 'ls -la' or 'npm run build'). Can chain multiple commands with && or ;")],
+    command: Annotated[str, Field(description="The shell command to execute. Each call is stateless; for persistent state (cd, venv, env vars), drive a Zellij session instead of chaining &&")],
     pause_timeout: Annotated[float, Field(description="Seconds of output silence to wait before returning a partial response (default is 9.0)")] = 9.0,
     total_timeout: Annotated[float, Field(description="Hard cap in seconds on the maximum duration of this call (default is 20.0)")] = 20.0,
 ) -> dict:
     """
-    Execute a command in a session (SSH or local). Always use this to run
-    shell commands — there is no persistent shell between calls, so chain
-    state-changing commands with && (e.g. "cd /foo && ls").
+    Execute a command in a session (SSH or local). Each call runs in an
+    isolated channel — there is no persistent shell between calls.
+
+    For simple tasks, chain with && (e.g. "cd /foo && ls").
+    For multi-step workflows needing persistent state (cd, venv, env vars),
+    start a Zellij session and drive it via CLI instead of chaining &&.
 
     Returns a dict:
       status="completed":  exit_code, output filled in. Command is done.
@@ -135,7 +143,7 @@ async def execute(
                              send_control(cid, key) — send Ctrl+C / arrows / F-keys
                              (do nothing, let it run — fine for daemons)
 
-    Long-running TUI apps (zellij, tmux, vim) MUST be started in foreground.
+    Long-running TUI apps (zellij, vim) MUST be started in foreground.
     Do NOT background them with `&` — that breaks their initialization. The
     "partial" return after a short timeout is expected and correct; the
     server has already daemonized itself and is safe to abandon.
