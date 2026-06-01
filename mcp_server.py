@@ -166,10 +166,19 @@ async def respond(
     total_timeout: Annotated[float, Field(description="Hard cap in seconds on the maximum duration of this call (default is 20.0)")] = 20.0,
 ) -> dict:
     """
-    Send text input to a command that returned status="partial" and is
-    waiting at a prompt. Auto-appends \\n if missing.
+    Send text input to any running command (status="partial"). This is the
+    general-purpose "write to stdin" tool — works for interactive prompts
+    (y/n, passwords), shell commands, or any text the process expects.
+    Auto-appends \\n if missing.
 
-    Example: respond(command_id, "y") to answer a [Y/n] prompt.
+    NOTE ON MULTIPLEXERS: For commands running inside zellij/tmux, prefer
+    the multiplexer's own CLI (e.g. `zellij action write-chars`) via
+    `execute` instead of `respond`. Reasons:
+      1. Output quality: `respond` returns the TUI's raw screen rendering
+         (borders, status bar, ANSI redraws), not clean command output.
+      2. Coupling: `respond` requires the original partial command_id to
+         stay alive; the CLI approach is stateless — the daemon survives
+         independently.
 
     For control keys (Ctrl+C, arrows, F-keys, ESC, etc.) use send_control
     instead — AI frameworks routinely strip control characters from string

@@ -125,9 +125,20 @@ execute("tmux new-window -t main -n train 'bash start.sh'")
 ```
 
 This is NOT the same as "puppeting the TUI": `write-chars` / `send-keys` are
-the multiplexer's own structured CLI for injecting input. The thing to avoid
-is using interminal's `respond` / `send_control` against the live TUI display
-— that races against the renderer.
+the multiplexer's own structured CLI for injecting input, delivered via IPC to
+the daemon. Prefer this over interminal's `respond` / `send_control` on the
+live TUI channel for two reasons:
+
+1. **Output quality** — `respond` returns the TUI's raw screen rendering
+   (borders, status bar, ANSI cursor moves), not clean command output.
+   The CLI approach lets you read pane content cleanly via `dump-screen`.
+2. **Coupling** — `respond` requires the original partial `command_id` to
+   stay alive. The CLI approach is stateless: the daemon has already forked
+   and survives independently of any channel, so each `execute` call is
+   self-contained.
+
+(`respond` *does* deliver text to the active pane in normal mode — zellij
+forwards printable input. It's not broken, just inferior to the CLI path.)
 
 `TERM=xterm-256color` is required: zellij reads `TERM` at startup to pick its
 renderer, and the default inherited from paramiko's PTY is often missing or
