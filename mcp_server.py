@@ -1,4 +1,5 @@
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 from typing import Optional, Annotated
 from pydantic import Field
 from session_manager import SessionManager
@@ -56,70 +57,92 @@ KEY PATTERNS (read before first use to save discovery loops):
 manager = SessionManager()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Connect to SSH Server",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+)
 async def connect_ssh(
     host: Annotated[str, Field(description="The hostname or IP address of the SSH server to connect to (e.g., '192.168.1.10' or 'example.com')")],
     port: Annotated[int, Field(description="The port number of the SSH server (default is 22)")] = 22,
     username: Annotated[Optional[str], Field(description="Optional username for authentication. If omitted, the connection will use SSH agent or system defaults")] = None,
-    password: Annotated[Optional[str], Field(description="Optional password for password-based authentication. If using key-based authentication, this can be omitted")] = None,
-    key_filepath: Annotated[Optional[str], Field(description="Optional absolute path to a private key file (SSH key) for key-based authentication")] = None,
+    password: Annotated[Optional[str], Field(description="Optional password for password-based authentication. Omit if using key-based authentication")] = None,
+    key_filepath: Annotated[Optional[str], Field(description="Optional absolute path to a private key file for key-based auth; must be readable by the server process. If both this and password are supplied, the key is attempted first")] = None,
     banner_timeout: Annotated[float, Field(description="The timeout in seconds to wait for the MOTD/welcome banner after the connection opens")] = 2.0,
 ) -> dict:
     """
-    Establishes a persistent, stateful connection to a remote SSH server, automatically accepting host keys.
-    This session remains active across tool calls, allowing multiple execute commands to run sequentially.
+    Opens a persistent SSH connection to a REMOTE host and returns a session_id.
+    The connection stays open across tool calls until closed with `disconnect`;
+    drive it with `execute`. Host keys are auto-accepted (no prompt).
 
-    CONNECTION LIFECYCLE:
-    - Initiates connection and performs handshake.
-    - Waits up to `banner_timeout` seconds to capture the MOTD/welcome banner.
-    - Returns a persistent session_id representing this connection.
-    - The connection remains open until explicitly closed using the `disconnect` tool.
+    WHEN TO USE:
+    - Use this for a shell on a remote host. For a shell on the LOCAL machine
+      running this server, use `create_local` instead.
+    - Reuse an existing session_id rather than reconnecting per command.
 
-    AUTHENTICATION METHODS:
-    - Username & Password: Use 'username' and 'password' arguments.
-    - Key-based (Recommended): Provide 'username' and 'key_filepath' (absolute path to private key).
-    - If both password and private key are provided, key-based authentication is attempted first.
+    AUTHENTICATION (key-based recommended):
+    - Password: pass `username` + `password`.
+    - Key: pass `username` + `key_filepath` (absolute path). If both a password
+      and a key are given, the key is tried first.
 
-    DEFAULT BEHAVIORS:
-    - Automatically trusts and accepts SSH host keys (no prompt).
-    - Starts a remote shell session ready to execute commands.
+    Captures the MOTD/welcome banner for up to `banner_timeout` seconds. Raises
+    on authentication failure, hostname/DNS errors, or connection timeout.
 
-    ERROR HANDLING:
-    - Raises exceptions for authentication failures, hostname resolution issues, or connection timeouts.
-    - Ensure paths provided in 'key_filepath' are absolute and readable by the server process.
-
-    Returns:
-        A dictionary containing:
-            - session_id: Unique identifier for the created SSH session (use this for execute commands).
-            - banner: The server's welcome message/MOTD, or an empty string if timeout.
+    Returns a dict:
+        - session_id: identifier for this connection (pass to `execute`).
+        - banner: the server's MOTD, or "" if none arrived before banner_timeout.
     """
     return await manager.connect_ssh(host, port, username, password, key_filepath, banner_timeout)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Create Local Shell Session",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+)
 def create_local(
     shell: Annotated[Optional[str], Field(description="Optional absolute path or executable name of the shell to use (e.g., 'powershell.exe', '/bin/bash', '/bin/zsh'). If omitted, defaults to cmd.exe on Windows or /bin/bash on Unix/macOS.")] = None
 ) -> str:
     """
-    Creates a persistent local terminal session (PTY on supported platforms).
-    Starts a local shell process that remains active across tool calls.
+    Creates a persistent local terminal session (PTY on supported platforms)
+    on the machine hosting this MCP server. The session stays active across
+    tool calls; drive it with `execute` and close it with `disconnect`.
+
+    WHEN TO USE:
+    - Use this for a shell on the LOCAL host (the machine running this server).
+      For a shell on a REMOTE host, use `connect_ssh` instead.
+    - Reuse an existing session_id rather than creating one per command.
 
     BEHAVIOR & SIDE EFFECTS:
-    - Spawns a shell process running locally on the server host machine.
-    - Commands run in this shell execute with the permissions of the user running the MCP server process.
-    - Side effects include full read/write file access and execution privileges on the host system.
-
-    SAFETY PROFILE:
-    - This tool gives the client access to the local machine's shell. Use with caution.
-    - No automatic rate limits or destructive filters are applied. Ensure commands executed are safe.
+    - Spawns a shell with the permissions of the user running the MCP server —
+      full read/write file access and execution privileges on the host.
+    - No rate limits or destructive-command filters are applied.
+    - Leaks a process if left open; call `disconnect` when finished.
 
     Returns:
-        A unique session_id to identify and drive the created local shell session.
+        A unique session_id used to drive (`execute`) and close (`disconnect`)
+        this shell.
     """
     return manager.create_local(shell)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Execute Command",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+)
 async def execute(
     session_id: Annotated[str, Field(description="The unique session identifier returned by connect_ssh or create_local")],
     command: Annotated[str, Field(description="The shell command to execute. Each call is stateless; for persistent state (cd, venv, env vars), drive a Zellij session instead of chaining &&")],
@@ -128,11 +151,9 @@ async def execute(
 ) -> dict:
     """
     Execute a command in a session (SSH or local). Each call runs in an
-    isolated channel — there is no persistent shell between calls.
-
-    For simple tasks, chain with && (e.g. "cd /foo && ls").
-    For multi-step workflows needing persistent state (cd, venv, env vars),
-    start a Zellij session and drive it via CLI instead of chaining &&.
+    isolated channel — there is NO persistent shell between calls. For simple
+    tasks chain with && ("cd /foo && ls"); for persistent state (cd, venv, env
+    vars) start a Zellij session and drive it via CLI instead.
 
     Returns a dict:
       status="completed":  exit_code, output filled in. Command is done.
@@ -143,10 +164,10 @@ async def execute(
                              send_control(cid, key) — send Ctrl+C / arrows / F-keys
                              (do nothing, let it run — fine for daemons)
 
-    Long-running TUI apps (zellij, vim) MUST be started in foreground.
-    Do NOT background them with `&` — that breaks their initialization. The
-    "partial" return after a short timeout is expected and correct; the
-    server has already daemonized itself and is safe to abandon.
+    Long-running TUI apps (zellij, vim) MUST be started in foreground. Do NOT
+    background them with `&` — it breaks their init. The "partial" return after
+    a short timeout is expected: the server has already daemonized and is safe
+    to abandon.
 
     Args:
     - pause_timeout: seconds of OUTPUT SILENCE before returning (default 9.0).
@@ -158,7 +179,15 @@ async def execute(
     return await manager.execute_command(session_id, command, pause_timeout, total_timeout)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Send Input to Command",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+)
 async def respond(
     command_id: Annotated[str, Field(description="The active command_id returned in a partial status response that is waiting for input")],
     text: Annotated[str, Field(description="The text input to send to the command (e.g. 'y' for prompts, passwords, etc.). Newline is auto-appended")],
@@ -196,7 +225,13 @@ async def respond(
     return await manager.respond_to_command(command_id, text, pause_timeout, total_timeout)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Read Command Output",
+        readOnlyHint=True,
+        openWorldHint=True,
+    )
+)
 async def read_output(
     command_id: Annotated[str, Field(description="The active command_id returned in a partial status response")],
     pause_timeout: Annotated[float, Field(description="Seconds of output silence to wait before returning (default is 9.0)")] = 9.0,
@@ -204,10 +239,15 @@ async def read_output(
 ) -> dict:
     """
     Read new output from a running command without sending any input.
-    Use this after execute returns status "partial" when the command needs no interaction
-    (e.g. long-running build, training loop, find).
+    Use this after execute returns status "partial" when the command needs no
+    interaction (e.g. long-running build, training loop, find).
 
-    Returns the same format as execute/respond.
+    Returns the same dict as execute:
+      status="partial":    output + command_id; poll again for more.
+      status="completed":  output + exit_code. The command_id is now spent —
+                           it is closed and removed, so a later read_output on
+                           it raises "Invalid command_id".
+    Each call returns only the output produced since the previous call.
 
     Args:
     - pause_timeout: seconds of OUTPUT SILENCE before returning (default 9.0).
@@ -220,7 +260,15 @@ async def read_output(
     return await manager.poll_command(command_id, pause_timeout, total_timeout)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Send Control Key/Signal",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+)
 async def send_control(
     command_id: Annotated[str, Field(description="The active command_id returned in a partial status response")],
     signal: Annotated[str, Field(description="The control signal or key to send. Supported values: 'ctrl+c', 'ctrl+z', 'ctrl+d', arrow keys, enter, f1-f12, etc.")] = "ctrl+c",
@@ -262,7 +310,15 @@ async def send_control(
     return await manager.send_control(command_id, signal, pause_timeout, total_timeout)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Disconnect Session",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
 async def disconnect(
     session_id: Annotated[str, Field(description="The unique session identifier returned by connect_ssh or create_local that you want to close")]
 ) -> bool:
@@ -284,27 +340,26 @@ async def disconnect(
     return await manager.disconnect(session_id)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="List Active Sessions",
+        readOnlyHint=True,
+        openWorldHint=False,
+    )
+)
 def list_sessions() -> list[dict]:
     """
-    List all currently active terminal sessions (SSH and local) managed by this server.
+    List all active terminal sessions (SSH and local) managed by this server.
 
-    USAGE GUIDELINES:
-    - Use this tool to discover existing sessions, check connection statuses, and retrieve active session_ids.
-    - Recommended prerequisite: Call this tool before executing commands if you need to resume or verify an existing session.
-    - Do NOT use this tool if you already know the session_id and just want to run commands directly.
+    USAGE: Call this to discover or resume existing session_ids. Skip it if you
+    already hold the session_id you need. To create a session use create_local
+    or connect_ssh; to close one use disconnect.
 
-    ALTERNATIVES:
-    - If you want to create a new session instead of listing existing ones, use create_local or connect_ssh.
-    - If you want to stop/close an active session, use disconnect.
-
-    Returns:
-        A list of dictionaries, each containing:
-            - session_id: Unique identifier of the session.
-            - type: Either 'ssh' or 'local'.
-            - host (SSH only): The remote hostname connected to.
-            - port (SSH only): The remote port connected to.
-            - shell (local only): The shell executable running.
+    Returns a list of dicts, each with:
+        - session_id: the session's identifier.
+        - type: 'ssh' or 'local'.
+        - host, port: the remote endpoint (SSH only).
+        - shell: the shell executable (local only).
     """
     return manager.list_sessions()
 
