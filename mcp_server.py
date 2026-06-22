@@ -121,22 +121,22 @@ async def execute(
 ) -> dict:
     """
     Execute a command locally or over SSH in an isolated channel.
+    Local: just pass command (shell defaults to cmd.exe/bash).
+    SSH: also pass session_id from connect_ssh.
 
-    LOCAL (default): just pass command — shell defaults to cmd.exe (Win)
-    or /bin/bash (Unix). SSH: also pass session_id from connect_ssh.
-
-    PARAMETER GUIDANCE: Chain with && for multi-step ("cd /foo && ls");
-    use Zellij/tmux for persistent state. session_id raises ValueError if
-    invalid. shell is only read when session_id is null. pause_timeout
-    controls silence tolerance — raise it (not total_timeout) for quiet
-    jobs. total_timeout only caps actively streaming output.
+    PARAMETER GUIDANCE: session_id selects SSH when present, local when
+    null. shell is only read for local. Chain with && for multi-step;
+    use Zellij/tmux for persistent state. pause_timeout controls silence
+    tolerance — raise it (not total_timeout) for quiet jobs.
 
     WHEN NOT TO USE: use respond (stdin), send_control (keys), or
     read_output (poll) for already-running commands.
 
     SIDE EFFECTS: Spawns a subprocess or SSH channel. Partial commands
-    stay alive until finished or interrupted. TUI apps (zellij, vim)
-    MUST start in foreground — never use &.
+    stay alive until finished or interrupted. TUI apps MUST start in
+    foreground — never use &.
+
+    ERRORS: Raises ValueError if session_id is invalid or disconnected.
 
     RETURNS:
     - {"status": "completed", "output": str, "exit_code": int}
@@ -155,21 +155,28 @@ async def execute(
     )
 )
 async def respond(
-    command_id: Annotated[str, Field(description="The command_id from a status='partial' response. Must be an active (not yet completed) command. Raises ValueError if invalid or already finished")],
-    text: Annotated[str, Field(description="Text to write to the command's stdin (e.g. 'y', a password, a shell command). A trailing newline is auto-appended if missing. For control keys (Ctrl+C, arrows, etc.) use send_control instead — AI frameworks strip control bytes from strings")],
-    pause_timeout: Annotated[float, Field(description="Seconds of output silence before returning. Raise this (not total_timeout) when the command is slow to respond after receiving input. Must be > 0 and ≤ total_timeout")] = 9.0,
-    total_timeout: Annotated[float, Field(description="Hard cap on total call duration in seconds. Only binds while output is actively streaming. Must be ≥ pause_timeout")] = 20.0,
+    command_id: Annotated[str, Field(description="The command_id from a status='partial' response. Raises ValueError if invalid or already completed")],
+    text: Annotated[str, Field(description="Text to write to stdin (e.g. 'y', a password, a shell command)")],
+    pause_timeout: Annotated[float, Field(description="Seconds of silence before returning (> 0, ≤ total_timeout)")] = 9.0,
+    total_timeout: Annotated[float, Field(description="Hard cap on call duration in seconds (≥ pause_timeout)")] = 20.0,
 ) -> dict:
     """
     Write text to a running command's stdin. Works for interactive prompts
     (y/n, passwords), shell input, or any text the process expects.
 
-    For commands inside zellij/tmux, prefer the multiplexer CLI
-    (e.g. `zellij action write-chars`) via `execute` — it gives cleaner
-    output and doesn't depend on the original command_id staying alive.
+    PARAMETER GUIDANCE: text auto-appends a trailing newline if missing —
+    no need to add \\n yourself. For control keys (Ctrl+C, arrows, F-keys)
+    use send_control instead — AI frameworks strip raw control bytes from
+    text strings, so they never reach the process. pause_timeout controls
+    how long to wait for output after sending; raise it (not total_timeout)
+    when the command is slow to respond. total_timeout only caps active
+    streaming.
 
-    SIDE EFFECTS: Writes to the command's stdin. May trigger the command
-    to produce output, change state, or exit.
+    WHEN NOT TO USE: For commands inside zellij/tmux, prefer the
+    multiplexer CLI (e.g. `zellij action write-chars`) via execute — it
+    gives cleaner output and doesn't depend on the command_id staying alive.
+
+    SIDE EFFECTS: Writes to stdin. May trigger output, state change, or exit.
 
     ERRORS: Raises ValueError if command_id is invalid or already completed.
 
@@ -244,6 +251,9 @@ async def send_control(
     suspend), ctrl+d (EOF), ctrl+\\ (SIGQUIT). Local non-PTY subprocesses
     only react to ctrl+c, ctrl+z, ctrl+\\; SSH and PTY channels accept all.
 
+    WHEN NOT TO USE: For printable text input (y/n, passwords, shell
+    commands), use respond instead — it handles newlines automatically.
+
     SIDE EFFECTS: The signal may terminate the command (e.g. ctrl+c),
     making the command_id invalid on the next read.
 
@@ -277,11 +287,12 @@ async def disconnect(
     Close an SSH session and release all associated resources. NOT needed
     for local commands — those clean up automatically.
 
-    SESSION_ID LIFECYCLE: The id flows connect_ssh → execute → disconnect.
-    After disconnect, the id is permanently retired — execute() with it
-    raises ValueError. Calling disconnect on an already-closed or unknown
-    id is a safe no-op (idempotent), so cleanup logic never needs to
-    track whether disconnect was already called.
+    SESSION_ID LIFECYCLE: The id is an opaque UUID created by connect_ssh,
+    used with execute, and retired by this call. Each connect_ssh produces
+    a unique id — reconnecting the same host gives a new one. After
+    disconnect, execute() with the old id raises ValueError. Calling
+    disconnect on an already-closed or unknown id is a safe no-op
+    (idempotent), so cleanup logic never needs to guard against double-close.
 
     SIDE EFFECTS: Terminates all running commands on this session (their
     command_ids become invalid), closes SSH channels and TCP socket.
