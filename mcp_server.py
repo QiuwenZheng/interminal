@@ -230,20 +230,17 @@ async def send_control(
 ) -> dict:
     """
     Send a control key or escape sequence to a running command. Prefer
-    this over respond for non-printable input — AI frameworks strip
-    raw control bytes from strings.
+    this over respond — AI frameworks strip control bytes from strings.
+    For printable text (y/n, passwords), use respond instead.
 
-    SIGNAL HANDLING: Case-insensitive names (e.g. ctrl+c, ctrl+z,
-    ctrl+d, arrows, f1..f12, alt+<char>). Local non-PTY only reacts
-    to ctrl+c/z/\\; SSH and PTY channels accept all listed signals.
+    SIDE EFFECTS: ctrl+c sends SIGINT (may terminate the command,
+    invalidating command_id). ctrl+z sends SIGTSTP (suspend). ctrl+d
+    sends EOF. Local non-PTY only reacts to ctrl+c/z/\\; SSH and PTY
+    channels accept all signals listed in the schema.
 
-    WHEN NOT TO USE: For printable text (y/n, passwords), use respond.
-
-    PARAMETER GUIDANCE: Raise pause_timeout for slow TUI repaints over
-    high-latency SSH; total_timeout only caps active streaming. The
-    signal may terminate the command (e.g. ctrl+c → SIGINT), making
-    the command_id invalid. Raises ValueError on invalid command_id
-    or unrecognized signal name.
+    PARAMETER GUIDANCE: signal names are whitespace-tolerant ("Ctrl + C"
+    works). Raise pause_timeout for slow TUI repaints; total_timeout
+    only caps streaming. Raises ValueError on bad command_id or signal.
 
     RETURNS:
     - {"status": "partial", "output": str, "command_id": str}
