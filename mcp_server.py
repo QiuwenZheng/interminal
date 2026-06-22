@@ -71,31 +71,34 @@ manager = SessionManager()
     )
 )
 async def connect_ssh(
-    host: Annotated[str, Field(description="Hostname or IP of the SSH server (e.g. '192.168.1.10', 'example.com'). DNS resolution happens at connect time; unresolvable hosts raise an error")],
-    port: Annotated[int, Field(description="SSH port, 1–65535. Most servers listen on 22; non-standard ports are common for hardened hosts")] = 22,
-    username: Annotated[Optional[str], Field(description="Login user for authentication. If omitted, falls back to SSH agent or OS default user. Required when the remote user differs from the local one")] = None,
-    password: Annotated[Optional[str], Field(description="Password for password-based auth. If both password and key_filepath are provided, key is tried first, password is the fallback")] = None,
-    key_filepath: Annotated[Optional[str], Field(description="Absolute path to a private key file (e.g. '/home/user/.ssh/id_rsa'). Must be readable by the server process. Preferred over password for non-interactive use")] = None,
-    banner_timeout: Annotated[float, Field(description="Max seconds to capture the MOTD/welcome banner after login. If exceeded, banner returns '' (not an error). Increase for slow hosts; set to 0 to skip banner capture entirely")] = 2.0,
+    host: Annotated[str, Field(description="Hostname or IP of the SSH server (e.g. '192.168.1.10', 'example.com')")],
+    port: Annotated[int, Field(description="SSH port number, 1–65535")] = 22,
+    username: Annotated[Optional[str], Field(description="Login user for authentication; omit to use SSH agent or OS default")] = None,
+    password: Annotated[Optional[str], Field(description="Password for password-based auth; omit for key-based auth")] = None,
+    key_filepath: Annotated[Optional[str], Field(description="Absolute path to a private key file (e.g. '/home/user/.ssh/id_rsa')")] = None,
+    banner_timeout: Annotated[float, Field(description="Max seconds to capture the MOTD/welcome banner after login")] = 2.0,
 ) -> dict:
     """
     Opens a persistent SSH connection and returns a session_id for use with
     `execute`. The connection stays open until `disconnect`. Host keys are
     auto-accepted. For local commands, call `execute` directly — no session needed.
 
-    AUTHENTICATION: key_filepath is tried first when both key and password
-    are provided; password acts as fallback. With neither, SSH agent and
-    system defaults are used. The username defaults to the OS user if omitted.
+    PARAMETER GUIDANCE: Reuse session_id across multiple execute calls —
+    each connect_ssh opens a new TCP connection. key_filepath is tried
+    first when both key and password are provided; password acts as
+    fallback. With neither, SSH agent and system defaults are used. The
+    username defaults to the OS user if omitted. host is resolved at
+    connect time; unresolvable names raise an error. banner_timeout
+    controls MOTD capture — if exceeded, banner returns "" (not an error);
+    set to 0 to skip capture entirely.
 
-    SIDE EFFECTS: Opens a TCP socket with a 30-second keepalive. Leaks the
-    socket if `disconnect` is never called.
+    SIDE EFFECTS: Opens a TCP socket with a 30-second keepalive. Leaks
+    the socket if `disconnect` is never called.
 
-    ERRORS: Raises on authentication failure, unresolvable hostname, refused
-    connection, or network timeout.
+    ERRORS: Raises on auth failure, unresolvable host, refused connection,
+    or network timeout.
 
     RETURNS: {"session_id": str, "banner": str}
-    - session_id: pass to `execute(session_id=...)` and `disconnect`.
-    - banner: server MOTD captured during banner_timeout, or "" if none.
     """
     return await manager.connect_ssh(host, port, username, password, key_filepath, banner_timeout)
 
@@ -110,43 +113,34 @@ async def connect_ssh(
     )
 )
 async def execute(
-    command: Annotated[str, Field(description="Shell command to run. Each call is stateless — `cd /foo` does NOT persist. Chain with && for multi-step (e.g. 'cd /foo && ls'), or use a Zellij/tmux session for persistent state")],
-    session_id: Annotated[Optional[str], Field(description="SSH session_id from connect_ssh. Omit (or null) for local execution. Raises ValueError if the session_id is invalid or was already disconnected")] = None,
-    shell: Annotated[Optional[str], Field(description="Shell for local execution (e.g. 'powershell.exe', '/bin/bash'). Only used when session_id is null — ignored for SSH. Defaults to cmd.exe on Windows, /bin/bash on Unix")] = None,
-    pause_timeout: Annotated[float, Field(description="Seconds of output silence before returning. Controls how long to wait for a quiet command — raise this (not total_timeout) for slow-starting jobs. Must be > 0 and ≤ total_timeout")] = 9.0,
-    total_timeout: Annotated[float, Field(description="Hard cap on total call duration in seconds. Only binds while output is actively streaming — a silent command returns at pause_timeout, not total_timeout. Must be ≥ pause_timeout")] = 20.0,
+    command: Annotated[str, Field(description="Shell command to run (stateless — cd does not persist between calls)")],
+    session_id: Annotated[Optional[str], Field(description="SSH session_id from connect_ssh; omit for local execution")] = None,
+    shell: Annotated[Optional[str], Field(description="Shell for local execution (e.g. 'powershell.exe', '/bin/bash'); ignored for SSH")] = None,
+    pause_timeout: Annotated[float, Field(description="Seconds of silence before returning a partial result (> 0, ≤ total_timeout)")] = 9.0,
+    total_timeout: Annotated[float, Field(description="Hard cap on call duration in seconds (≥ pause_timeout)")] = 20.0,
 ) -> dict:
     """
-    Execute a command locally or over SSH. Each call runs in an isolated
-    channel — no persistent shell between calls.
+    Execute a command locally or over SSH in an isolated channel.
 
-    LOCAL (default): just pass `command`. A transient shell spawns and is
-    torn down automatically when the command finishes.
-    SSH: also pass `session_id` from `connect_ssh`.
+    LOCAL (default): just pass command — shell defaults to cmd.exe (Win)
+    or /bin/bash (Unix). SSH: also pass session_id from connect_ssh.
 
-    WHEN NOT TO USE:
-    - To send input to an already-running command, use `respond` instead.
-    - To send control keys (Ctrl+C, arrows) to a running command, use
-      `send_control` instead.
-    - To poll output from a running command, use `read_output` instead.
+    PARAMETER GUIDANCE: Chain with && for multi-step ("cd /foo && ls");
+    use Zellij/tmux for persistent state. session_id raises ValueError if
+    invalid. shell is only read when session_id is null. pause_timeout
+    controls silence tolerance — raise it (not total_timeout) for quiet
+    jobs. total_timeout only caps actively streaming output.
 
-    SIDE EFFECTS: Spawns a subprocess (local) or opens an SSH exec channel.
-    Completed commands are cleaned up automatically. Partial commands stay
-    alive until finished, interrupted via send_control, or the session is
-    disconnected.
+    WHEN NOT TO USE: use respond (stdin), send_control (keys), or
+    read_output (poll) for already-running commands.
 
-    TIMEOUT INTERACTION: pause_timeout controls return time for silent
-    commands; total_timeout only binds while output is actively streaming.
-    For quiet long-running jobs, raise pause_timeout (not total_timeout).
-
-    TUI apps (zellij, vim) MUST start in foreground — never use `&`.
-
-    ERRORS: Raises ValueError on invalid session_id.
+    SIDE EFFECTS: Spawns a subprocess or SSH channel. Partial commands
+    stay alive until finished or interrupted. TUI apps (zellij, vim)
+    MUST start in foreground — never use &.
 
     RETURNS:
     - {"status": "completed", "output": str, "exit_code": int}
     - {"status": "partial", "output": str, "command_id": str}
-      Use command_id with read_output / respond / send_control.
     """
     return await manager.execute_command(command, session_id, shell, pause_timeout, total_timeout)
 
@@ -179,8 +173,9 @@ async def respond(
 
     ERRORS: Raises ValueError if command_id is invalid or already completed.
 
-    RETURNS: Same format as execute —
-    {"status": "completed"|"partial", "output": str, ...}
+    RETURNS:
+    - {"status": "partial", "output": str, "command_id": str}
+    - {"status": "completed", "output": str, "exit_code": int}
     """
     return await manager.respond_to_command(command_id, text, pause_timeout, total_timeout)
 
@@ -193,9 +188,9 @@ async def respond(
     )
 )
 async def read_output(
-    command_id: Annotated[str, Field(description="The command_id from a status='partial' response. Must be an active command. Raises ValueError if invalid or already completed")],
-    pause_timeout: Annotated[float, Field(description="Seconds of output silence before returning. This is the primary dial for polling quiet jobs — raise it (e.g. 30, 60) instead of total_timeout. Must be > 0 and ≤ total_timeout")] = 9.0,
-    total_timeout: Annotated[float, Field(description="Hard cap on total call duration in seconds. Only binds while output is actively streaming — a silent poll returns at pause_timeout regardless. Must be ≥ pause_timeout")] = 20.0,
+    command_id: Annotated[str, Field(description="The command_id from a status='partial' response. Raises ValueError if invalid or already completed")],
+    pause_timeout: Annotated[float, Field(description="Seconds of silence before returning. Primary dial for polling — raise it (e.g. 30, 60) for quiet jobs instead of total_timeout. Must be > 0 and ≤ total_timeout")] = 9.0,
+    total_timeout: Annotated[float, Field(description="Hard cap on call duration in seconds. Only binds while output is streaming — silent polls return at pause_timeout. Must be ≥ pause_timeout")] = 20.0,
 ) -> dict:
     """
     Poll new output from a running command without sending input. Use after
@@ -203,18 +198,21 @@ async def read_output(
     training loops, long searches).
 
     Each call returns only output produced since the last read. When the
-    command finishes, status="completed" is returned and the command_id
-    becomes invalid — further calls raise ValueError.
+    command finishes, status changes to "completed" and the command_id is
+    retired — further calls raise ValueError.
 
-    TIMEOUT INTERACTION: pause_timeout is the primary dial for polling —
-    it controls how long to wait when the command is silent. Raise it
-    (e.g. 30, 60) for quiet long-running jobs. total_timeout only binds
-    while output is actively streaming.
+    WHEN NOT TO USE: If the command expects input, use respond. If you
+    need to interrupt or send keys, use send_control.
+
+    PARAMETER GUIDANCE: pause_timeout is the primary dial — it controls
+    how long to wait when the command is silent. total_timeout only caps
+    actively streaming output and has no effect during silence.
 
     ERRORS: Raises ValueError if command_id is invalid or already completed.
 
-    RETURNS: Same format as execute —
-    {"status": "completed"|"partial", "output": str, ...}
+    RETURNS:
+    - {"status": "partial", "output": str, "command_id": str}
+    - {"status": "completed", "output": str, "exit_code": int}
     """
     return await manager.poll_command(command_id, pause_timeout, total_timeout)
 
@@ -231,8 +229,8 @@ async def read_output(
 async def send_control(
     command_id: Annotated[str, Field(description="The command_id from a status='partial' response. Must be an active command. Raises ValueError if invalid or already completed")],
     signal: Annotated[str, Field(description="Case-insensitive key name. Values: ctrl+a..ctrl+z, ctrl+[/]/^/_/\\, esc, tab, enter, return, space, backspace, up/down/left/right, home, end, pageup, pagedown, insert, delete, f1..f12, backtab, alt+<char>. Raises ValueError if unrecognized")] = "ctrl+c",
-    pause_timeout: Annotated[float, Field(description="Seconds of output silence after sending the key before returning. Raise for slow TUI repaints (e.g. over high-latency SSH). Must be > 0 and ≤ total_timeout")] = 9.0,
-    total_timeout: Annotated[float, Field(description="Hard cap on total call duration in seconds. Only binds while output is actively streaming. Must be ≥ pause_timeout")] = 20.0,
+    pause_timeout: Annotated[float, Field(description="Seconds of silence after sending the key before returning (> 0, ≤ total_timeout)")] = 9.0,
+    total_timeout: Annotated[float, Field(description="Hard cap on call duration in seconds (≥ pause_timeout)")] = 20.0,
 ) -> dict:
     """
     Send a control key or escape sequence to a running command. Use for
@@ -249,15 +247,16 @@ async def send_control(
     SIDE EFFECTS: The signal may terminate the command (e.g. ctrl+c),
     making the command_id invalid on the next read.
 
-    TIMEOUT INTERACTION: pause_timeout controls how long to wait for
-    output after the signal. Raise it for slow TUI repaints over
-    high-latency SSH; total_timeout only binds during active streaming.
+    PARAMETER GUIDANCE: pause_timeout controls how long to wait for output
+    after the signal — raise it for slow TUI repaints over high-latency
+    SSH. total_timeout only binds during active streaming.
 
     ERRORS: Raises ValueError if command_id is invalid, already completed,
     or signal name is unrecognized.
 
-    RETURNS: Same format as execute —
-    {"status": "completed"|"partial", "output": str, ...}
+    RETURNS:
+    - {"status": "partial", "output": str, "command_id": str}
+    - {"status": "completed", "output": str, "exit_code": int}
     """
     return await manager.send_control(command_id, signal, pause_timeout, total_timeout)
 
@@ -272,19 +271,23 @@ async def send_control(
     )
 )
 async def disconnect(
-    session_id: Annotated[str, Field(description="The session_id returned by connect_ssh. After this call, the session_id becomes invalid — further execute() calls with it raise ValueError. Safe to call multiple times: disconnecting an already-closed or unknown session_id silently returns true (idempotent)")]
+    session_id: Annotated[str, Field(description="SSH session identifier obtained from connect_ssh")]
 ) -> bool:
     """
-    Close an SSH session and release all associated resources. Idempotent:
-    calling on an already-disconnected or unknown session_id returns true
-    without error. NOT needed for local commands — those clean up automatically.
+    Close an SSH session and release all associated resources. NOT needed
+    for local commands — those clean up automatically.
 
-    SIDE EFFECTS: On first call — terminates all running commands on this
-    session (their command_ids become invalid), closes SSH channels and the
-    TCP socket, removes the session. On repeated calls — no-op.
+    SESSION_ID LIFECYCLE: The id flows connect_ssh → execute → disconnect.
+    After disconnect, the id is permanently retired — execute() with it
+    raises ValueError. Calling disconnect on an already-closed or unknown
+    id is a safe no-op (idempotent), so cleanup logic never needs to
+    track whether disconnect was already called.
 
-    WHEN NOT TO USE: To stop a single command without closing the entire
-    SSH session, use send_control with "ctrl+c" instead.
+    SIDE EFFECTS: Terminates all running commands on this session (their
+    command_ids become invalid), closes SSH channels and TCP socket.
+
+    WHEN NOT TO USE: To stop a single command without closing the session,
+    use send_control with "ctrl+c" instead.
 
     RETURNS: true (always succeeds).
     """
