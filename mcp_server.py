@@ -121,22 +121,18 @@ async def execute(
 ) -> dict:
     """
     Execute a command locally or over SSH in an isolated channel.
-    Local: just pass command (shell defaults to cmd.exe/bash).
+    Local: just pass command (defaults to cmd.exe/bash).
     SSH: also pass session_id from connect_ssh.
 
-    PARAMETER GUIDANCE: session_id selects SSH when present, local when
-    null. shell is only read for local. Chain with && for multi-step;
-    use Zellij/tmux for persistent state. pause_timeout controls silence
-    tolerance — raise it (not total_timeout) for quiet jobs.
+    PARAMETER GUIDANCE: session_id selects SSH vs local; shell only
+    applies to local. Chain with && for multi-step; use Zellij/tmux
+    for persistent state. Raise pause_timeout (not total_timeout) for
+    quiet jobs. Raises ValueError if session_id is invalid.
 
-    WHEN NOT TO USE: use respond (stdin), send_control (keys), or
-    read_output (poll) for already-running commands.
+    WHEN NOT TO USE: respond (stdin), send_control (keys), read_output (poll).
 
-    SIDE EFFECTS: Spawns a subprocess or SSH channel. Partial commands
-    stay alive until finished or interrupted. TUI apps MUST start in
-    foreground — never use &.
-
-    ERRORS: Raises ValueError if session_id is invalid or disconnected.
+    SIDE EFFECTS: Spawns a process. Partial commands live until finished
+    or interrupted. TUI apps MUST start in foreground — never use &.
 
     RETURNS:
     - {"status": "completed", "output": str, "exit_code": int}
@@ -161,24 +157,17 @@ async def respond(
     total_timeout: Annotated[float, Field(description="Hard cap on call duration in seconds (≥ pause_timeout)")] = 20.0,
 ) -> dict:
     """
-    Write text to a running command's stdin. Works for interactive prompts
-    (y/n, passwords), shell input, or any text the process expects.
+    Write text to a running command's stdin. Works for prompts (y/n,
+    passwords), shell input, or any text the process expects.
 
-    PARAMETER GUIDANCE: text auto-appends a trailing newline if missing —
-    no need to add \\n yourself. For control keys (Ctrl+C, arrows, F-keys)
-    use send_control instead — AI frameworks strip raw control bytes from
-    text strings, so they never reach the process. pause_timeout controls
-    how long to wait for output after sending; raise it (not total_timeout)
-    when the command is slow to respond. total_timeout only caps active
-    streaming.
+    PARAMETER GUIDANCE: text auto-appends \\n if missing. For control
+    keys use send_control — AI frameworks strip control bytes. Raise
+    pause_timeout (not total_timeout) for slow responses after input.
+    Raises ValueError if command_id is invalid or completed.
 
-    WHEN NOT TO USE: For commands inside zellij/tmux, prefer the
-    multiplexer CLI (e.g. `zellij action write-chars`) via execute — it
-    gives cleaner output and doesn't depend on the command_id staying alive.
+    WHEN NOT TO USE: Inside zellij/tmux, prefer multiplexer CLI via execute.
 
-    SIDE EFFECTS: Writes to stdin. May trigger output, state change, or exit.
-
-    ERRORS: Raises ValueError if command_id is invalid or already completed.
+    SIDE EFFECTS: Writes to stdin; may trigger output, state change, or exit.
 
     RETURNS:
     - {"status": "partial", "output": str, "command_id": str}
@@ -240,29 +229,21 @@ async def send_control(
     total_timeout: Annotated[float, Field(description="Hard cap on call duration in seconds (≥ pause_timeout)")] = 20.0,
 ) -> dict:
     """
-    Send a control key or escape sequence to a running command. Use for
-    interrupts (ctrl+c), TUI navigation (arrows, F-keys), or any
-    non-printable input. Prefer this over `respond` for control keys —
-    AI frameworks strip raw control bytes from string arguments.
+    Send a control key or escape sequence to a running command. Prefer
+    this over respond for non-printable input — AI frameworks strip
+    raw control bytes from strings.
 
-    SIGNAL HANDLING: The signal parameter accepts any key name from the
-    supported list (case-insensitive, whitespace-tolerant — "Ctrl + C"
-    works). Common signals: ctrl+c (SIGINT/interrupt), ctrl+z (SIGTSTP/
-    suspend), ctrl+d (EOF), ctrl+\\ (SIGQUIT). Local non-PTY subprocesses
-    only react to ctrl+c, ctrl+z, ctrl+\\; SSH and PTY channels accept all.
+    SIGNAL HANDLING: Case-insensitive names (e.g. ctrl+c, ctrl+z,
+    ctrl+d, arrows, f1..f12, alt+<char>). Local non-PTY only reacts
+    to ctrl+c/z/\\; SSH and PTY channels accept all listed signals.
 
-    WHEN NOT TO USE: For printable text input (y/n, passwords, shell
-    commands), use respond instead — it handles newlines automatically.
+    WHEN NOT TO USE: For printable text (y/n, passwords), use respond.
 
-    SIDE EFFECTS: The signal may terminate the command (e.g. ctrl+c),
-    making the command_id invalid on the next read.
-
-    PARAMETER GUIDANCE: pause_timeout controls how long to wait for output
-    after the signal — raise it for slow TUI repaints over high-latency
-    SSH. total_timeout only binds during active streaming.
-
-    ERRORS: Raises ValueError if command_id is invalid, already completed,
-    or signal name is unrecognized.
+    PARAMETER GUIDANCE: Raise pause_timeout for slow TUI repaints over
+    high-latency SSH; total_timeout only caps active streaming. The
+    signal may terminate the command (e.g. ctrl+c → SIGINT), making
+    the command_id invalid. Raises ValueError on invalid command_id
+    or unrecognized signal name.
 
     RETURNS:
     - {"status": "partial", "output": str, "command_id": str}
