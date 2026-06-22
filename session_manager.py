@@ -385,7 +385,7 @@ class SessionManager:
 
     async def disconnect(self, session_id: str) -> bool:
         if session_id not in self.sessions:
-            raise ValueError("Invalid session_id")
+            return True
 
         session = self.sessions.pop(session_id)
 

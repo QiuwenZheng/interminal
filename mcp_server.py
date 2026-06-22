@@ -83,6 +83,10 @@ async def connect_ssh(
     `execute`. The connection stays open until `disconnect`. Host keys are
     auto-accepted. For local commands, call `execute` directly — no session needed.
 
+    AUTHENTICATION: key_filepath is tried first when both key and password
+    are provided; password acts as fallback. With neither, SSH agent and
+    system defaults are used. The username defaults to the OS user if omitted.
+
     SIDE EFFECTS: Opens a TCP socket with a 30-second keepalive. Leaks the
     socket if `disconnect` is never called.
 
@@ -91,7 +95,7 @@ async def connect_ssh(
 
     RETURNS: {"session_id": str, "banner": str}
     - session_id: pass to `execute(session_id=...)` and `disconnect`.
-    - banner: server MOTD, or "" if none arrived within banner_timeout.
+    - banner: server MOTD captured during banner_timeout, or "" if none.
     """
     return await manager.connect_ssh(host, port, username, password, key_filepath, banner_timeout)
 
@@ -120,10 +124,20 @@ async def execute(
     torn down automatically when the command finishes.
     SSH: also pass `session_id` from `connect_ssh`.
 
+    WHEN NOT TO USE:
+    - To send input to an already-running command, use `respond` instead.
+    - To send control keys (Ctrl+C, arrows) to a running command, use
+      `send_control` instead.
+    - To poll output from a running command, use `read_output` instead.
+
     SIDE EFFECTS: Spawns a subprocess (local) or opens an SSH exec channel.
     Completed commands are cleaned up automatically. Partial commands stay
     alive until finished, interrupted via send_control, or the session is
     disconnected.
+
+    TIMEOUT INTERACTION: pause_timeout controls return time for silent
+    commands; total_timeout only binds while output is actively streaming.
+    For quiet long-running jobs, raise pause_timeout (not total_timeout).
 
     TUI apps (zellij, vim) MUST start in foreground — never use `&`.
 
@@ -192,6 +206,11 @@ async def read_output(
     command finishes, status="completed" is returned and the command_id
     becomes invalid — further calls raise ValueError.
 
+    TIMEOUT INTERACTION: pause_timeout is the primary dial for polling —
+    it controls how long to wait when the command is silent. Raise it
+    (e.g. 30, 60) for quiet long-running jobs. total_timeout only binds
+    while output is actively streaming.
+
     ERRORS: Raises ValueError if command_id is invalid or already completed.
 
     RETURNS: Same format as execute —
@@ -221,11 +240,18 @@ async def send_control(
     non-printable input. Prefer this over `respond` for control keys —
     AI frameworks strip raw control bytes from string arguments.
 
-    SIDE EFFECTS: The signal may terminate the command (e.g. ctrl+c sends
-    SIGINT), making the command_id invalid on the next read. ctrl+z sends
-    SIGTSTP (suspend). Local non-PTY subprocesses only react to ctrl+c,
-    ctrl+z, ctrl+\\ (SIGINT/SIGTSTP/SIGQUIT); SSH and PTY channels accept
-    all listed signals.
+    SIGNAL HANDLING: The signal parameter accepts any key name from the
+    supported list (case-insensitive, whitespace-tolerant — "Ctrl + C"
+    works). Common signals: ctrl+c (SIGINT/interrupt), ctrl+z (SIGTSTP/
+    suspend), ctrl+d (EOF), ctrl+\\ (SIGQUIT). Local non-PTY subprocesses
+    only react to ctrl+c, ctrl+z, ctrl+\\; SSH and PTY channels accept all.
+
+    SIDE EFFECTS: The signal may terminate the command (e.g. ctrl+c),
+    making the command_id invalid on the next read.
+
+    TIMEOUT INTERACTION: pause_timeout controls how long to wait for
+    output after the signal. Raise it for slow TUI repaints over
+    high-latency SSH; total_timeout only binds during active streaming.
 
     ERRORS: Raises ValueError if command_id is invalid, already completed,
     or signal name is unrecognized.
@@ -246,22 +272,21 @@ async def send_control(
     )
 )
 async def disconnect(
-    session_id: Annotated[str, Field(description="The session_id returned by connect_ssh. Becomes invalid after this call — further execute() calls with it raise ValueError. Raises ValueError if already disconnected or unrecognized")]
+    session_id: Annotated[str, Field(description="The session_id returned by connect_ssh. After this call, the session_id becomes invalid — further execute() calls with it raise ValueError. Safe to call multiple times: disconnecting an already-closed or unknown session_id silently returns true (idempotent)")]
 ) -> bool:
     """
-    Close an SSH session and release all associated resources. NOT needed
-    for local commands — those clean up automatically.
+    Close an SSH session and release all associated resources. Idempotent:
+    calling on an already-disconnected or unknown session_id returns true
+    without error. NOT needed for local commands — those clean up automatically.
 
-    SIDE EFFECTS: Terminates all running commands on this session (their
-    command_ids become invalid), closes SSH channels and the TCP socket,
-    and removes the session. The session_id cannot be reused.
+    SIDE EFFECTS: On first call — terminates all running commands on this
+    session (their command_ids become invalid), closes SSH channels and the
+    TCP socket, removes the session. On repeated calls — no-op.
 
-    To stop a single command without closing the session, use send_control
-    with "ctrl+c" instead.
+    WHEN NOT TO USE: To stop a single command without closing the entire
+    SSH session, use send_control with "ctrl+c" instead.
 
-    ERRORS: Raises ValueError if session_id is invalid or already disconnected.
-
-    RETURNS: true on success.
+    RETURNS: true (always succeeds).
     """
     return await manager.disconnect(session_id)
 
