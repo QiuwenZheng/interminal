@@ -139,7 +139,7 @@
             "description": "Hard cap in seconds on the maximum duration of this call (default is 20.0)."
           }
         },
-        "required": ["command_id"]
+        "required": ["command_id", "signal"]
       }
     },
     {

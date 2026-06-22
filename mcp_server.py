@@ -224,7 +224,7 @@ async def read_output(
 )
 async def send_control(
     command_id: Annotated[str, Field(description="The command_id from a status='partial' response. Must be an active command. Raises ValueError if invalid or already completed")],
-    signal: Annotated[str, Field(description="Case-insensitive key name. Values: ctrl+a..ctrl+z, ctrl+[/]/^/_/\\, esc, tab, enter, return, space, backspace, up/down/left/right, home, end, pageup, pagedown, insert, delete, f1..f12, backtab, alt+<char>. Raises ValueError if unrecognized")] = "ctrl+c",
+    signal: Annotated[str, Field(description="Case-insensitive key name. Values: ctrl+a..ctrl+z, ctrl+[/]/^/_/\\, esc, tab, enter, return, space, backspace, up/down/left/right, home, end, pageup, pagedown, insert, delete, f1..f12, backtab, alt+<char>. Raises ValueError if unrecognized")],
     pause_timeout: Annotated[float, Field(description="Seconds of silence after sending the key before returning (> 0, ≤ total_timeout)")] = 9.0,
     total_timeout: Annotated[float, Field(description="Hard cap on call duration in seconds (≥ pause_timeout)")] = 20.0,
 ) -> dict:
@@ -236,8 +236,8 @@ async def send_control(
     SIDE EFFECTS: ctrl+c sends SIGINT (may terminate the command,
     invalidating command_id). ctrl+z suspends (SIGTSTP). ctrl+d sends EOF.
 
-    PARAMETER GUIDANCE: signal defaults to ctrl+c (the common interrupt
-    case); names are whitespace-tolerant ("Ctrl + C" works). Effectiveness
+    PARAMETER GUIDANCE: signal names are whitespace-tolerant ("Ctrl + C"
+    works). Common values: ctrl+c (interrupt), ctrl+z (suspend). Effectiveness
     varies by channel: local non-PTY only reacts to ctrl+c/z/\\, SSH/PTY
     accept all. Raise pause_timeout for slow TUI repaints; total_timeout
     only caps streaming. Raises ValueError on bad command_id or signal.
