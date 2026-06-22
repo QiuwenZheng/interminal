@@ -7,12 +7,12 @@
     "url": "https://github.com/QiuwenZheng/interminal",
     "source": "github"
   },
-  "version": "1.0.5",
+  "version": "1.0.18",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "mcp-interminal",
-      "version": "1.0.5",
+      "version": "1.0.18",
       "transport": {
         "type": "stdio"
       }
