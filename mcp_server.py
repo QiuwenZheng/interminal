@@ -234,12 +234,12 @@ async def send_control(
     For printable text (y/n, passwords), use respond instead.
 
     SIDE EFFECTS: ctrl+c sends SIGINT (may terminate the command,
-    invalidating command_id). ctrl+z sends SIGTSTP (suspend). ctrl+d
-    sends EOF. Local non-PTY only reacts to ctrl+c/z/\\; SSH and PTY
-    channels accept all signals listed in the schema.
+    invalidating command_id). ctrl+z suspends (SIGTSTP). ctrl+d sends EOF.
 
-    PARAMETER GUIDANCE: signal names are whitespace-tolerant ("Ctrl + C"
-    works). Raise pause_timeout for slow TUI repaints; total_timeout
+    PARAMETER GUIDANCE: signal defaults to ctrl+c (the common interrupt
+    case); names are whitespace-tolerant ("Ctrl + C" works). Effectiveness
+    varies by channel: local non-PTY only reacts to ctrl+c/z/\\, SSH/PTY
+    accept all. Raise pause_timeout for slow TUI repaints; total_timeout
     only caps streaming. Raises ValueError on bad command_id or signal.
 
     RETURNS:
