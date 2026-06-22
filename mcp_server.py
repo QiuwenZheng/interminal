@@ -225,28 +225,33 @@ async def read_output(
 async def send_control(
     command_id: Annotated[str, Field(description="The command_id from a status='partial' response. Must be an active command. Raises ValueError if invalid or already completed")],
     signal: Annotated[str, Field(description="Case-insensitive key name. Values: ctrl+a..ctrl+z, ctrl+[/]/^/_/\\, esc, tab, enter, return, space, backspace, up/down/left/right, home, end, pageup, pagedown, insert, delete, f1..f12, backtab, alt+<char>. Raises ValueError if unrecognized")],
-    pause_timeout: Annotated[float, Field(description="Seconds of silence after sending the key before returning (> 0, ≤ total_timeout)")] = 9.0,
-    total_timeout: Annotated[float, Field(description="Hard cap on call duration in seconds (≥ pause_timeout)")] = 20.0,
+    pause_timeout: Annotated[float, Field(description="Seconds of output silence after sending the key before returning. Raise for slow TUI repaints (e.g. over high-latency SSH). Must be > 0 and ≤ total_timeout")] = 9.0,
+    total_timeout: Annotated[float, Field(description="Hard cap on total call duration in seconds. Only binds while output is actively streaming. Must be ≥ pause_timeout")] = 20.0,
 ) -> dict:
     """
-    Send a control key or escape sequence to a running command. Prefer
-    this over respond — AI frameworks strip control bytes from strings.
-    For printable text (y/n, passwords), use respond instead.
+    Send a control key or escape sequence to a running command. Use for
+    interrupts (ctrl+c), TUI navigation (arrows, F-keys), or any
+    non-printable input. Prefer this over `respond` for control keys —
+    AI frameworks strip raw control bytes from string arguments.
 
-    SIDE EFFECTS: ctrl+c sends SIGINT (may terminate the command,
-    invalidating command_id). ctrl+z suspends (SIGTSTP). ctrl+d sends EOF.
+    SIGNAL HANDLING: The signal parameter accepts any key name from the
+    supported list (case-insensitive, whitespace-tolerant — "Ctrl + C"
+    works). Common signals: ctrl+c (SIGINT/interrupt), ctrl+z (SIGTSTP/
+    suspend), ctrl+d (EOF), ctrl+\\ (SIGQUIT). Local non-PTY subprocesses
+    only react to ctrl+c, ctrl+z, ctrl+\\; SSH and PTY channels accept all.
 
-    PARAMETER GUIDANCE: signal is whitespace-tolerant ("Ctrl + C" works).
-    Interrupt signals (ctrl+c, ctrl+d) may terminate the command and
-    invalidate command_id — raise pause_timeout for slow cleanup.
-    Navigation keys (arrows, F-keys) produce immediate output and never
-    invalidate command_id — default timeouts suffice. Local non-PTY only
-    reacts to ctrl+c/z/\\; SSH/PTY accept all. total_timeout only caps
-    active streaming. Raises ValueError on bad command_id or signal.
+    SIDE EFFECTS: The signal may terminate the command (e.g. ctrl+c),
+    making the command_id invalid on the next read.
 
-    RETURNS:
-    - {"status": "partial", "output": str, "command_id": str}
-    - {"status": "completed", "output": str, "exit_code": int}
+    TIMEOUT INTERACTION: pause_timeout controls how long to wait for
+    output after the signal. Raise it for slow TUI repaints over
+    high-latency SSH; total_timeout only binds during active streaming.
+
+    ERRORS: Raises ValueError if command_id is invalid, already completed,
+    or signal name is unrecognized.
+
+    RETURNS: Same format as execute —
+    {"status": "completed"|"partial", "output": str, ...}
     """
     return await manager.send_control(command_id, signal, pause_timeout, total_timeout)
 
