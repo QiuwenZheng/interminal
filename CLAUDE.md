@@ -24,9 +24,9 @@ There are no test, lint, or build commands configured in this project.
 ## Architecture
 
 ```
-mcp_server.py          ← FastMCP tool definitions (7 tools)
+mcp_server.py          ← FastMCP tool definitions (6 tools)
     ↓
-session_manager.py     ← SessionManager: SSH + local session lifecycle
+session_manager.py     ← SessionManager: SSH sessions + transient local execution
     ↓
 channel.py             ← Channel abstraction (SSHChannel | LocalChannel | PtyChannel)
     ↓
@@ -53,10 +53,11 @@ command.py             ← RunningCommand: background read loop, UTF-8 decoding
 
 ### Session lifecycle
 
-1. `create_local()` or `connect_ssh()` creates a `Session` dataclass entry in `SessionManager.sessions`.
-2. `execute()` wraps the session's shell in a `Channel`, then a `RunningCommand` with a background `asyncio` read loop.
-3. `respond()` / `send_control()` write directly to the running command's channel.
-4. `disconnect()` closes the channel, terminates the subprocess/SSH client, and removes the session.
+**SSH:** `connect_ssh()` creates a `Session` in `SessionManager.sessions`. `execute(session_id=...)` opens a channel on the SSH connection. `disconnect()` tears down the SSH client and all its commands.
+
+**Local:** `execute()` without `session_id` creates a transient channel (PtyChannel or LocalChannel) — no Session is stored. The channel is cleaned up when the command completes or is interrupted via `send_control`.
+
+In both cases, `execute()` wraps the channel in a `RunningCommand` with a background `asyncio` read loop. `respond()` / `send_control()` write directly to the running command's channel.
 
 ## Persistent shell via multiplexers (zellij, tmux)
 

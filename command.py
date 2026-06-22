@@ -10,8 +10,9 @@ logger = logging.getLogger("interminal.command")
 class RunningCommand:
     """Manages one running command with background output buffering."""
 
-    def __init__(self, channel: Channel, session_id: str):
+    def __init__(self, channel: Channel, command: str, session_id: str | None = None):
         self.channel = channel
+        self.command = command
         self.session_id = session_id
 
         self.buffer = ""

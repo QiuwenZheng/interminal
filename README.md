@@ -37,13 +37,11 @@ Requires Python ≥ 3.11.
 | Tool | Description |
 |------|-------------|
 | `connect_ssh` | Connect to an SSH server; returns `session_id` and welcome banner |
-| `create_local` | Create a local shell session |
-| `execute` | Run a command; returns output or `status=partial` + `command_id` for long-running commands |
+| `execute` | Run a command locally (no session needed) or over SSH; returns output or `status=partial` + `command_id` |
 | `read_output` | Poll a running command for new output without sending input |
 | `respond` | Send text input to a command waiting at a prompt |
 | `send_control` | Send control keys: `ctrl+c`, `ctrl+z`, arrow keys, F-keys, etc. |
-| `disconnect` | Close a session and release all resources |
-| `list_sessions` | List all active sessions |
+| `disconnect` | Close an SSH session and release all resources |
 
 ## Recommended: Install Zellij
 

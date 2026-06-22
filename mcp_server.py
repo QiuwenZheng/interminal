@@ -12,15 +12,19 @@ long-running, and stateful tasks.
 
 KEY PATTERNS (read before first use to save discovery loops):
 
-1. SINGLE EXECUTE IS STATELESS:
-   Each `execute` call runs in an isolated channel. `cd /foo` does NOT
-   persist to the next call.
+1. LOCAL COMMANDS — JUST CALL EXECUTE:
+   execute("ls -la") works immediately — no session setup needed.
+   Each call is stateless: `cd /foo` does NOT persist to the next call.
    - Simple 1-2 step tasks: chain with && (e.g. "cd /foo && ls").
    - Multi-step workflows needing persistent state (cd, env vars, venv,
      long-running processes): start a Zellij session and drive it via CLI
-     — see patterns 2-4 below.
+     — see patterns 3-5 below.
 
-2. PERSISTENT SHELL via Zellij:
+2. SSH COMMANDS — CONNECT FIRST:
+   connect_ssh(host, ...) returns a session_id. Pass it to execute().
+   The connection stays open until disconnect(session_id).
+
+3. PERSISTENT SHELL via Zellij:
    Start a Zellij session for any stateful, ongoing workspace. The daemon
    keeps the shell alive on the host; the user can `zellij attach <name>`
    to observe your work in real-time or provide input (sudo, credentials).
@@ -30,7 +34,7 @@ KEY PATTERNS (read before first use to save discovery loops):
    "myproject-dev") so you can resume after reconnection.
    If Zellij is not available, tmux is a viable alternative.
 
-3. DRIVING ZELLIJ (Avoid Pane Proliferation):
+4. DRIVING ZELLIJ (Avoid Pane Proliferation):
    Once the session is running, use its CLI. REUSE the active pane by
    default — do NOT create a new pane/tab for every command.
    - Run command in current pane:
@@ -44,7 +48,7 @@ KEY PATTERNS (read before first use to save discovery loops):
        execute("zellij --session s action dump-screen /tmp/out.txt")
        execute("cat /tmp/out.txt")
 
-4. INTERACTIVE & LONG-RUNNING COMMANDS (without multiplexer):
+5. INTERACTIVE & LONG-RUNNING COMMANDS (without multiplexer):
    Commands that produce ongoing output return status="partial" with a
    command_id. To continue:
      - read_output(command_id) — poll for logs, build output, etc.
@@ -80,8 +84,8 @@ async def connect_ssh(
     drive it with `execute`. Host keys are auto-accepted (no prompt).
 
     WHEN TO USE:
-    - Use this for a shell on a remote host. For a shell on the LOCAL machine
-      running this server, use `create_local` instead.
+    - Use this for a shell on a remote host. For local commands, just call
+      `execute` directly — no session needed.
     - Reuse an existing session_id rather than reconnecting per command.
 
     AUTHENTICATION (key-based recommended):
@@ -101,41 +105,6 @@ async def connect_ssh(
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        title="Create Local Shell Session",
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
-    )
-)
-def create_local(
-    shell: Annotated[Optional[str], Field(description="Optional absolute path or executable name of the shell to use (e.g., 'powershell.exe', '/bin/bash', '/bin/zsh'). If omitted, defaults to cmd.exe on Windows or /bin/bash on Unix/macOS.")] = None
-) -> str:
-    """
-    Creates a persistent local terminal session (PTY on supported platforms)
-    on the machine hosting this MCP server. The session stays active across
-    tool calls; drive it with `execute` and close it with `disconnect`.
-
-    WHEN TO USE:
-    - Use this for a shell on the LOCAL host (the machine running this server).
-      For a shell on a REMOTE host, use `connect_ssh` instead.
-    - Reuse an existing session_id rather than creating one per command.
-
-    BEHAVIOR & SIDE EFFECTS:
-    - Spawns a shell with the permissions of the user running the MCP server —
-      full read/write file access and execution privileges on the host.
-    - No rate limits or destructive-command filters are applied.
-    - Leaks a process if left open; call `disconnect` when finished.
-
-    Returns:
-        A unique session_id used to drive (`execute`) and close (`disconnect`)
-        this shell.
-    """
-    return manager.create_local(shell)
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(
         title="Execute Command",
         readOnlyHint=False,
         destructiveHint=True,
@@ -144,16 +113,23 @@ def create_local(
     )
 )
 async def execute(
-    session_id: Annotated[str, Field(description="The unique session identifier returned by connect_ssh or create_local")],
     command: Annotated[str, Field(description="The shell command to execute. Each call is stateless; for persistent state (cd, venv, env vars), drive a Zellij session instead of chaining &&")],
+    session_id: Annotated[Optional[str], Field(description="SSH session_id returned by connect_ssh. Omit for local commands — no session needed")] = None,
+    shell: Annotated[Optional[str], Field(description="Shell for local execution (e.g. 'powershell.exe', '/bin/bash'). Ignored when session_id is provided. Defaults to cmd.exe on Windows, /bin/bash on Unix")] = None,
     pause_timeout: Annotated[float, Field(description="Seconds of output silence to wait before returning a partial response (default is 9.0)")] = 9.0,
     total_timeout: Annotated[float, Field(description="Hard cap in seconds on the maximum duration of this call (default is 20.0)")] = 20.0,
 ) -> dict:
     """
-    Execute a command in a session (SSH or local). Each call runs in an
-    isolated channel — there is NO persistent shell between calls. For simple
-    tasks chain with && ("cd /foo && ls"); for persistent state (cd, venv, env
-    vars) start a Zellij session and drive it via CLI instead.
+    Execute a command locally or over SSH. Each call runs in an isolated
+    channel — there is NO persistent shell between calls.
+
+    LOCAL (default): just pass `command`. No session needed — a transient
+    shell is created and torn down automatically.
+
+    SSH: pass `command` + `session_id` from `connect_ssh`.
+
+    For persistent state (cd, venv, env vars), start a Zellij/tmux session
+    and drive it via CLI instead of chaining &&.
 
     Returns a dict:
       status="completed":  exit_code, output filled in. Command is done.
@@ -176,7 +152,7 @@ async def execute(
     - total_timeout: hard cap on this call's duration (default 20.0). Only
       binds while output is actively streaming.
     """
-    return await manager.execute_command(session_id, command, pause_timeout, total_timeout)
+    return await manager.execute_command(command, session_id, shell, pause_timeout, total_timeout)
 
 
 @mcp.tool(
@@ -320,48 +296,24 @@ async def send_control(
     )
 )
 async def disconnect(
-    session_id: Annotated[str, Field(description="The unique session identifier returned by connect_ssh or create_local that you want to close")]
+    session_id: Annotated[str, Field(description="The SSH session_id returned by connect_ssh that you want to close")]
 ) -> bool:
     """
-    Gracefully disconnects from an active terminal session (SSH or local) and cleans up all associated resources.
+    Gracefully disconnects an SSH session and cleans up all associated resources.
+    NOT needed for local commands — those are transient and clean up automatically.
 
     BEHAVIOR:
-    - Terminates any running background commands and subprocesses associated with this session.
-    - Closes open PTY channels, SSH channels, and network sockets to release system resources.
+    - Terminates any running commands associated with this SSH session.
+    - Closes SSH channels and network sockets.
     - Removes the session from the active session manager.
 
     USAGE GUIDELINES:
-    - ALWAYS call this tool when you are finished executing commands on a session to prevent resource leaks (dangling processes/sockets).
-    - Do NOT call this tool if you intend to run more commands in this session later.
+    - Call this when finished with an SSH session to prevent resource leaks.
+    - Do NOT call if you intend to run more commands in this session later.
     - ALTERNATIVES:
-      * To see all active sessions before disconnecting, use `list_sessions`.
-      * To stop a single running command inside the session without closing the entire connection, use `send_control` with "ctrl+c" instead of `disconnect`.
+      * To stop a single running command, use `send_control` with "ctrl+c".
     """
     return await manager.disconnect(session_id)
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="List Active Sessions",
-        readOnlyHint=True,
-        openWorldHint=False,
-    )
-)
-def list_sessions() -> list[dict]:
-    """
-    List all active terminal sessions (SSH and local) managed by this server.
-
-    USAGE: Call this to discover or resume existing session_ids. Skip it if you
-    already hold the session_id you need. To create a session use create_local
-    or connect_ssh; to close one use disconnect.
-
-    Returns a list of dicts, each with:
-        - session_id: the session's identifier.
-        - type: 'ssh' or 'local'.
-        - host, port: the remote endpoint (SSH only).
-        - shell: the shell executable (local only).
-    """
-    return manager.list_sessions()
 
 
 def main():

@@ -5,7 +5,7 @@ import subprocess
 import sys
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 _ANSI_ESCAPE = re.compile(r'\x1b(?:[@-Z\\-_]|[0-?]|\[[0-?]*[ -/]*[@-~]|[ -/][@-~])')
 
@@ -128,11 +128,9 @@ logger = logging.getLogger("interminal.manager")
 
 @dataclass
 class Session:
-    type: str                          # "ssh" or "local"
-    client: Any = None                 # paramiko.SSHClient for SSH, None for local
-    shell: Optional[str] = None        # shell path for local sessions
-    host: Optional[str] = None         # SSH host (for display)
-    port: Optional[int] = None         # SSH port (for display)
+    client: paramiko.SSHClient
+    host: str
+    port: int
 
 
 class SessionManager:
@@ -179,19 +177,9 @@ class SessionManager:
 
         session_id = str(uuid.uuid4())
         self.sessions[session_id] = Session(
-            type="ssh", client=client, host=host, port=port,
+            client=client, host=host, port=port,
         )
         return {"session_id": session_id, "banner": banner}
-
-    def create_local(self, shell: Optional[str] = None) -> str:
-        if shell is None:
-            shell = "cmd.exe" if sys.platform == "win32" else "/bin/bash"
-
-        session_id = str(uuid.uuid4())
-        self.sessions[session_id] = Session(
-            type="local", shell=shell,
-        )
-        return session_id
 
     async def _capture_ssh_banner(self, client: paramiko.SSHClient, banner_timeout: float) -> str:
         ch = await asyncio.to_thread(client.invoke_shell)
@@ -213,34 +201,28 @@ class SessionManager:
 
     async def execute_command(
         self,
-        session_id: str,
         command: str,
+        session_id: Optional[str] = None,
+        shell: Optional[str] = None,
         pause_timeout: float = 9.0,
         total_timeout: float = 20.0,
     ) -> dict:
-        if session_id not in self.sessions:
-            raise ValueError("Invalid session_id")
-
-        session = self.sessions[session_id]
-
-        if session.type == "ssh":
+        if session_id is not None:
+            if session_id not in self.sessions:
+                raise ValueError("Invalid session_id")
+            session = self.sessions[session_id]
             def _open_ssh_channel(client, cmd):
                 ch = client.get_transport().open_session()
-                # exec_command(get_pty=True) hard-codes 80×24 vt100, which
-                # pins TUI apps like zellij to a tiny viewport for as long
-                # as this channel stays open. Use the low-level API so we
-                # can request a generous size and xterm-256color.
                 ch.get_pty(term='xterm-256color', width=500, height=200)
                 ch.exec_command(cmd)
                 return ch
             ch = await asyncio.to_thread(_open_ssh_channel, session.client, command)
-            # We work with ch directly (no ChannelFile wrappers), so there
-            # is no stdin.__del__ -> shutdown_write() GC hazard to guard against.
             channel = SSHChannel(ch)
-
-        elif session.type == "local":
+        else:
+            if shell is None:
+                shell = "cmd.exe" if sys.platform == "win32" else "/bin/bash"
             if PTY_AVAILABLE:
-                channel = PtyChannel(command, session.shell)
+                channel = PtyChannel(command, shell)
             else:
                 process = await asyncio.create_subprocess_shell(
                     command,
@@ -251,11 +233,8 @@ class SessionManager:
                 )
                 channel = LocalChannel(process)
 
-        else:
-            raise ValueError(f"Unknown session type: {session.type}")
-
         command_id = str(uuid.uuid4())
-        self.commands[command_id] = RunningCommand(channel, session_id)
+        self.commands[command_id] = RunningCommand(channel, command, session_id)
         return await self._wait_for_result(
             command_id, pause_timeout, total_timeout, is_first_exec=True,
         )
@@ -424,23 +403,7 @@ class SessionManager:
                 finally:
                     self.commands.pop(cid, None)
         finally:
-            if session.type == "ssh" and session.client is not None:
-                session.client.close()
+            session.client.close()
 
         return True
 
-    # ------------------------------------------------------------------
-    # Introspection
-    # ------------------------------------------------------------------
-
-    def list_sessions(self) -> list[dict]:
-        result = []
-        for sid, session in self.sessions.items():
-            info = {"session_id": sid, "type": session.type}
-            if session.type == "ssh":
-                info["host"] = session.host
-                info["port"] = session.port
-            elif session.type == "local":
-                info["shell"] = session.shell
-            result.append(info)
-        return result

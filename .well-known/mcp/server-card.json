@@ -1,7 +1,7 @@
 {
   "serverInfo": {
     "name": "interminal",
-    "version": "1.0.5"
+    "version": "1.0.6"
   },
   "tools": [
     {
@@ -39,31 +39,22 @@
       }
     },
     {
-      "name": "create_local",
-      "description": "Creates a persistent local terminal session (PTY on supported platforms).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "shell": {
-            "type": "string",
-            "description": "Optional absolute path or executable name of the shell to use (e.g., 'powershell.exe', '/bin/bash')."
-          }
-        }
-      }
-    },
-    {
       "name": "execute",
-      "description": "Execute a command in a session (SSH or local).",
+      "description": "Execute a command locally or over SSH. Local commands need no session — just pass the command.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "The unique session identifier returned by connect_ssh or create_local."
-          },
           "command": {
             "type": "string",
             "description": "The shell command to execute."
+          },
+          "session_id": {
+            "type": "string",
+            "description": "SSH session_id returned by connect_ssh. Omit for local commands."
+          },
+          "shell": {
+            "type": "string",
+            "description": "Shell for local execution (e.g. 'powershell.exe', '/bin/bash'). Ignored for SSH."
           },
           "pause_timeout": {
             "type": "number",
@@ -74,7 +65,7 @@
             "description": "Hard cap in seconds on the maximum duration of this call (default is 20.0)."
           }
         },
-        "required": ["session_id", "command"]
+        "required": ["command"]
       }
     },
     {
@@ -153,24 +144,16 @@
     },
     {
       "name": "disconnect",
-      "description": "Gracefully disconnects from an active terminal session (SSH or local) and cleans up all associated resources.",
+      "description": "Gracefully disconnects an SSH session and cleans up all associated resources. Not needed for local commands.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "session_id": {
             "type": "string",
-            "description": "The unique session identifier returned by connect_ssh or create_local."
+            "description": "The SSH session_id returned by connect_ssh."
           }
         },
         "required": ["session_id"]
-      }
-    },
-    {
-      "name": "list_sessions",
-      "description": "List all currently active terminal sessions (SSH and local) managed by this server.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
       }
     }
   ],
