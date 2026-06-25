@@ -33,19 +33,15 @@ KEY PATTERNS (read before first use to save discovery loops):
    Use a deterministic session name based on the project or task (e.g.
    "myproject-dev") so you can resume after reconnection.
 
-4. DRIVING ZELLIJ (Avoid Pane Proliferation):
-   Once the session is running, use its CLI. REUSE the active pane by
-   default — do NOT create a new pane/tab for every command.
-   - Run command in current pane:
-       execute("zellij --session s action write-chars 'npm run build'")
-       execute("zellij --session s action write 13")   # 13 = Enter byte
-   - Run command in a NEW tab (`new-tab` does NOT accept `-- cmd`):
-       execute("zellij --session s action new-tab --name v4")
-       execute("zellij --session s action write-chars 'bash start.sh'")
-       execute("zellij --session s action write 13")
-   - Read current screen content:
-       execute("zellij --session s action dump-screen")
-       execute("cat /tmp/out.txt")
+4. DRIVING ZELLIJ:
+   Once the session is running, drive it via CLI. REUSE the active pane.
+   - Run a command:
+       execute("zellij -s s action write-chars 'npm run build' && zellij -s s action send-keys Enter")
+   - Read screen content (returned in execute output):
+       execute("zellij -s s action dump-screen")
+       execute("zellij -s s action dump-screen --full")   # + scrollback
+   - Other operations (new-tab, new-pane, list-panes, etc.):
+       run `zellij action --help` to discover.
 
 5. INTERACTIVE & LONG-RUNNING COMMANDS (without multiplexer):
    Commands that produce ongoing output return status="partial" with a

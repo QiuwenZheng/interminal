@@ -95,51 +95,42 @@ execute("TERM=xterm-256color ~/work/zellij --session train", total_timeout=4)
 # 2. The partial channel can be ignored, disconnected, or left to time out.
 #    The daemonized server survives all of these.
 
-# 3. Drive the session from independent execute calls:
-execute("~/work/zellij --session train action new-pane -- bash start.sh")
-execute("~/work/zellij --session train action dump-screen")
+# 3. Run a command (one execute call — && chains both steps):
+execute("~/work/zellij -s train action write-chars 'bash start.sh' && ~/work/zellij -s train action send-keys Enter")
+
+# 4. Read screen content (returned in execute's output field):
+execute("~/work/zellij -s train action dump-screen")
+execute("~/work/zellij -s train action dump-screen --full")  # + scrollback
+
 execute("~/work/zellij list-sessions")
 execute("~/work/zellij delete-session train --force")
 ```
 
-### Running a command in a new tab's default pane
+### Why `write-chars` + `send-keys Enter` instead of `new-pane -- command`
 
-zellij's `action new-tab` does **not** accept `-- command` (unlike `new-pane`).
-A naive "open a tab and train" therefore ends up as `new-tab` (creates an empty
-default pane running the shell) + `new-pane -- bash start.sh` (a second pane
-split into the tab), which leaves a leftover empty pane.
+`new-pane -- cmd` and `new-tab -- cmd` directly `exec` the command without
+a shell. Shell builtins (`cd`, `echo`), pipes (`|`), redirects (`>`), and
+variable expansion (`$VAR`) all fail. You'd have to wrap everything in
+`powershell -c "..."` or `bash -c "..."` to make it work.
 
-To run the command in the new tab's default pane instead, chain `write-chars`
-+ `write 13` — `new-tab` focuses the new tab automatically, so the keystrokes
-land in its default pane:
+`write-chars` types into the pane's existing shell, so everything works
+exactly as if typed by hand. It also avoids pane proliferation — no new
+panes or tabs are created.
 
-```
-execute("~/work/zellij --session train action new-tab --name v4")
-execute("~/work/zellij --session train action write-chars 'bash start.sh'")
-execute("~/work/zellij --session train action write 13")   # 13 = Enter (CR)
-```
+For other zellij operations (new-tab, new-pane, list-panes, etc.), run
+`zellij action --help` to discover available commands.
 
-tmux is simpler — `new-window` takes the command directly:
+### Why use the CLI path instead of `respond`
 
-```
-execute("tmux new-window -t main -n train 'bash start.sh'")
-```
-
-This is NOT the same as "puppeting the TUI": `write-chars` / `send-keys` are
-the multiplexer's own structured CLI for injecting input, delivered via IPC to
-the daemon. Prefer this over interminal's `respond` / `send_control` on the
-live TUI channel for two reasons:
+Prefer driving zellij via its CLI (`write-chars`, `send-keys`, `dump-screen`)
+over interminal's `respond` / `send_control` on the live TUI channel:
 
 1. **Output quality** — `respond` returns the TUI's raw screen rendering
    (borders, status bar, ANSI cursor moves), not clean command output.
-   The CLI approach lets you read pane content cleanly via `dump-screen`.
+   `dump-screen` returns clean text.
 2. **Coupling** — `respond` requires the original partial `command_id` to
-   stay alive. The CLI approach is stateless: the daemon has already forked
-   and survives independently of any channel, so each `execute` call is
-   self-contained.
-
-(`respond` *does* deliver text to the active pane in normal mode — zellij
-forwards printable input. It's not broken, just inferior to the CLI path.)
+   stay alive. The CLI approach is stateless: the daemon survives
+   independently of any channel.
 
 `TERM=xterm-256color` is required: zellij reads `TERM` at startup to pick its
 renderer, and the default inherited from paramiko's PTY is often missing or
@@ -154,7 +145,7 @@ explicitly forks the server before any TTY operations.
 
 - `mcp[cli]` — FastMCP framework
 - `paramiko` — SSH client
-- `pywinpty` (optional) — Windows PTY support
-- `pyte` (optional) — ANSI escape sequence rendering
+- `pyte` — ANSI escape sequence rendering
+- `pywinpty` (Windows only) — Windows PTY support
 
 Python ≥ 3.11 required.
