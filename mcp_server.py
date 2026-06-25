@@ -32,7 +32,6 @@ KEY PATTERNS (read before first use to save discovery loops):
    "partial" once the daemon is up; ignore/abandon this partial channel.
    Use a deterministic session name based on the project or task (e.g.
    "myproject-dev") so you can resume after reconnection.
-   If Zellij is not available, tmux is a viable alternative.
 
 4. DRIVING ZELLIJ (Avoid Pane Proliferation):
    Once the session is running, use its CLI. REUSE the active pane by
@@ -125,7 +124,7 @@ async def execute(
     SSH: also pass session_id from connect_ssh.
 
     PARAMETER GUIDANCE: session_id selects SSH vs local; shell only
-    applies to local. Chain with && for multi-step; use Zellij/tmux
+    applies to local. Chain with && for multi-step; use Zellij
     for persistent state. Raise pause_timeout (not total_timeout) for
     quiet jobs. Raises ValueError if session_id is invalid.
 
@@ -165,7 +164,7 @@ async def respond(
     pause_timeout (not total_timeout) for slow responses after input.
     Raises ValueError if command_id is invalid or completed.
 
-    WHEN NOT TO USE: Inside zellij/tmux, prefer multiplexer CLI via execute.
+    WHEN NOT TO USE: Inside zellij, prefer multiplexer CLI via execute.
 
     SIDE EFFECTS: Writes to stdin; may trigger output, state change, or exit.
 
