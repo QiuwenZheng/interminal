@@ -44,7 +44,7 @@ KEY PATTERNS (read before first use to save discovery loops):
        execute("zellij --session s action write-chars 'bash start.sh'")
        execute("zellij --session s action write 13")
    - Read current screen content:
-       execute("zellij --session s action dump-screen /tmp/out.txt")
+       execute("zellij --session s action dump-screen")
        execute("cat /tmp/out.txt")
 
 5. INTERACTIVE & LONG-RUNNING COMMANDS (without multiplexer):
