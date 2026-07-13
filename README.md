@@ -43,27 +43,16 @@ Requires Python ≥ 3.11.
 | `send_control` | Send control keys: `ctrl+c`, `ctrl+z`, arrow keys, F-keys, etc. |
 | `disconnect` | Close an SSH session and release all resources |
 
-## Recommended: Install Zellij
+## Persistent State
 
-Each `execute` call runs in an isolated channel — there is no persistent shell between calls. For simple tasks, chaining with `&&` works. For **multi-step workflows** (project development, debugging, deployment), a terminal multiplexer provides persistent state that survives across calls.
+Each `execute` call runs in an isolated channel — there is no persistent shell between calls. For simple tasks, chaining with `&&` works.
 
-**[Zellij](https://zellij.dev/)** is strongly recommended on the host machine (local or remote):
-
-```bash
-# Linux / macOS / WSL
-cargo install zellij    # or: brew install zellij
-
-# Check if installed
-zellij --version
-```
-
-With Zellij installed, the AI agent will automatically create a persistent session where `cd`, environment variables, virtual environments, and long-running processes carry over naturally. As a bonus, you can run `zellij attach <session-name>` to watch the AI's terminal work in real-time.
+For **multi-step workflows** (project development, debugging, deployment), a terminal multiplexer (like Zellij) provides persistent state that survives across calls. The AI agent can create a persistent session where `cd`, environment variables, virtual environments, and long-running processes carry over naturally.
 
 ## Key Behaviors
 
-- **Stateless execute** — each call is an isolated channel; `cd /foo` does not persist. Simple tasks: chain with `&&`. Multi-step workflows: the AI will use a Zellij session for persistent state
+- **Stateless execute** — each call is an isolated channel; `cd /foo` does not persist. Simple tasks: chain with `&&`. Multi-step workflows: use a terminal multiplexer.
 - **Long-running commands** return `status="partial"` with a `command_id`; poll with `read_output` or send input with `respond`
-- **TUI apps** (zellij, vim, htop) must be started in the foreground — never background with `&`; after the server daemonizes, the partial channel can be abandoned
 - **SSH PTY** is 500×200 xterm-256color so multiplexer sessions render at your actual terminal size
 
 ## Optional Dependencies

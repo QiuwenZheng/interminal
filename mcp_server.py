@@ -17,33 +17,13 @@ KEY PATTERNS (read before first use to save discovery loops):
    Each call is stateless: `cd /foo` does NOT persist to the next call.
    - Simple 1-2 step tasks: chain with && (e.g. "cd /foo && ls").
    - Multi-step workflows needing persistent state (cd, env vars, venv,
-     long-running processes): start a Zellij session and drive it via CLI
-     — see patterns 3-5 below.
+     long-running processes): use a terminal multiplexer like zellij.
 
 2. SSH COMMANDS — CONNECT FIRST:
    connect_ssh(host, ...) returns a session_id. Pass it to execute().
    The connection stays open until disconnect(session_id).
 
-3. PERSISTENT SHELL via Zellij:
-   Start a Zellij session for any stateful, ongoing workspace. The daemon
-   keeps the shell alive on the host; the user can `zellij attach <name>`
-   to observe your work in real-time or provide input (sudo, credentials).
-   NEVER background with `&` — start in the FOREGROUND. `execute` returns
-   "partial" once the daemon is up; ignore/abandon this partial channel.
-   Use a deterministic session name based on the project or task (e.g.
-   "myproject-dev") so you can resume after reconnection.
-
-4. DRIVING ZELLIJ:
-   Once the session is running, drive it via CLI. REUSE the active pane.
-   - Run a command:
-       execute("zellij -s s action write-chars 'npm run build' && zellij -s s action send-keys Enter")
-   - Read screen content (returned in execute output):
-       execute("zellij -s s action dump-screen")
-       execute("zellij -s s action dump-screen --full")   # + scrollback
-   - Other operations (new-tab, new-pane, list-panes, etc.):
-       run `zellij action --help` to discover.
-
-5. INTERACTIVE & LONG-RUNNING COMMANDS (without multiplexer):
+3. INTERACTIVE & LONG-RUNNING COMMANDS:
    Commands that produce ongoing output return status="partial" with a
    command_id. To continue:
      - read_output(command_id) — poll for logs, build output, etc.

@@ -59,87 +59,11 @@ command.py             ← RunningCommand: background read loop, UTF-8 decoding
 
 In both cases, `execute()` wraps the channel in a `RunningCommand` with a background `asyncio` read loop. `respond()` / `send_control()` write directly to the running command's channel.
 
-## Persistent shell via multiplexers (zellij, tmux)
+## Persistent shell via multiplexers
 
-Each `execute()` call creates an independent `exec_command` channel — there is no
-persistent shell between calls.
+Each `execute()` call creates an independent `exec_command` channel — there is no persistent shell between calls. 
 
-### Why `zellij ... &` fails
-
-Backgrounding a TUI multiplexer with `&` does **not** work, but not because of
-SIGHUP. The failure is in zellij's init sequence:
-
-1. Shell parses `zellij &`, forks zellij into a **background process group**, and
-   immediately exits (only command in the shell was the backgrounded one).
-2. zellij's early init does TTY setup (`tcsetattr`, query terminal size, raw
-   mode). A background process group can't safely do this — it triggers
-   SIGTTOU/SIGTTIN, and the operations fail.
-3. Meanwhile the shell has exited, so the PTY is also collapsing.
-4. zellij aborts before it ever reaches the `fork()` + `setsid()` that would
-   daemonize the server. No server is ever created.
-
-So the surface symptom "`list-sessions` shows nothing" is correct, but the cause
-is "init never completed", not "SIGHUP killed a running server".
-
-### The working pattern
-
-Start zellij **in the foreground** (no `&`) and let `execute` return `partial`.
-zellij's server has time to fork + setsid, becoming a daemon in its own session.
-After that, the client/channel state is irrelevant — the server lives until
-explicitly killed.
-
-```
-# 1. Start the session. execute returns "partial" once init is done.
-execute("TERM=xterm-256color ~/work/zellij --session train", total_timeout=4)
-
-# 2. The partial channel can be ignored, disconnected, or left to time out.
-#    The daemonized server survives all of these.
-
-# 3. Run a command (one execute call — && chains both steps):
-execute("~/work/zellij -s train action write-chars 'bash start.sh' && ~/work/zellij -s train action send-keys Enter")
-
-# 4. Read screen content (returned in execute's output field):
-execute("~/work/zellij -s train action dump-screen")
-execute("~/work/zellij -s train action dump-screen --full")  # + scrollback
-
-execute("~/work/zellij list-sessions")
-execute("~/work/zellij delete-session train --force")
-```
-
-### Why `write-chars` + `send-keys Enter` instead of `new-pane -- command`
-
-`new-pane -- cmd` and `new-tab -- cmd` directly `exec` the command without
-a shell. Shell builtins (`cd`, `echo`), pipes (`|`), redirects (`>`), and
-variable expansion (`$VAR`) all fail. You'd have to wrap everything in
-`powershell -c "..."` or `bash -c "..."` to make it work.
-
-`write-chars` types into the pane's existing shell, so everything works
-exactly as if typed by hand. It also avoids pane proliferation — no new
-panes or tabs are created.
-
-For other zellij operations (new-tab, new-pane, list-panes, etc.), run
-`zellij action --help` to discover available commands.
-
-### Why use the CLI path instead of `respond`
-
-Prefer driving zellij via its CLI (`write-chars`, `send-keys`, `dump-screen`)
-over interminal's `respond` / `send_control` on the live TUI channel:
-
-1. **Output quality** — `respond` returns the TUI's raw screen rendering
-   (borders, status bar, ANSI cursor moves), not clean command output.
-   `dump-screen` returns clean text.
-2. **Coupling** — `respond` requires the original partial `command_id` to
-   stay alive. The CLI approach is stateless: the daemon survives
-   independently of any channel.
-
-`TERM=xterm-256color` is required: zellij reads `TERM` at startup to pick its
-renderer, and the default inherited from paramiko's PTY is often missing or
-minimal. The same prefix is useful for other TUIs.
-
-tmux works similarly but supports detached startup directly:
-`tmux new-session -d -s train "bash start.sh"` returns immediately and leaves
-a usable session — no partial-channel dance needed, because tmux's `-d` flag
-explicitly forks the server before any TTY operations.
+For workflows needing state (e.g. `cd`, `export VAR=val`), use a terminal multiplexer (e.g., zellij). Start the multiplexer daemon in the foreground, and interact with it using its CLI features instead of relying on Interminal's interactive tools to manipulate the UI.
 
 ## Dependencies
 
