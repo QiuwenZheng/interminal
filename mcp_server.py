@@ -96,18 +96,17 @@ async def execute(
 ) -> dict:
     """
     Execute a command locally or over SSH in an isolated channel.
-    Local: just pass command (defaults to cmd.exe/bash).
-    SSH: also pass session_id from connect_ssh.
 
-    PARAMETER GUIDANCE: session_id selects SSH vs local; shell only
-    applies to local. Chain with && for multi-step; use Zellij
-    for persistent state. Raise pause_timeout (not total_timeout) for
-    quiet jobs. Raises ValueError if session_id is invalid.
+    PARAMETER RELATIONSHIPS & VALIDATION:
+    - `session_id` vs `shell`: `session_id` determines the execution environment. If provided (must be a valid active session), it runs over SSH and `shell` is completely ignored. If omitted, it runs locally, and `shell` (e.g., 'powershell.exe', '/bin/bash') is used.
+    - `pause_timeout` vs `total_timeout`: These interact to manage execution time. `pause_timeout` (must be > 0) triggers an early return if the command goes silent for that many seconds. `total_timeout` (must be >= `pause_timeout`) sets a hard wall-clock limit even if output is constantly streaming. To wait longer for a quiet command (e.g., a build), increase `pause_timeout`.
+    - Both timeouts accept floats but invalid ranges (e.g., pause_timeout <= 0, or total_timeout < pause_timeout) or an unknown `session_id` will raise a ValueError.
 
-    WHEN NOT TO USE: respond (stdin), send_control (keys), read_output (poll).
+    WHEN NOT TO USE: 
+    Do not use this to send input to an existing command (`respond`), send control keys (`send_control`), or poll a running command (`read_output`).
 
-    SIDE EFFECTS: Spawns a process. Partial commands live until finished
-    or interrupted. TUI apps MUST start in foreground — never use &.
+    SIDE EFFECTS: 
+    Spawns a new, stateless process. `cd` or environment variables do NOT persist between calls. For persistent state, start a terminal multiplexer in the foreground. Never use `&` to background TUI apps.
 
     RETURNS:
     - {"status": "completed", "output": str, "exit_code": int}
